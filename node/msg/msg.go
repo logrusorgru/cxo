@@ -17,7 +17,7 @@ import (
 //
 
 // Version is current protocol version
-const Version uint16 = 3
+const Version uint16 = 4
 
 // be sure that all messages implements Msg interface compiler time
 var (
@@ -29,8 +29,8 @@ var (
 
 	// handshake
 
-	_ Msg = &Syn{} // <- Syn (node id, protocol version)
-	_ Msg = &Ack{} // -> Ack (peer id)
+	_ Msg = &Syn{} // <- Syn (node id, protocol version, features, data)
+	_ Msg = &Ack{} // -> Ack (peer id, features, data)
 
 	// common replies
 
@@ -51,10 +51,15 @@ var (
 
 	_ Msg = &Root{} // <- Root (feed, nonce, seq, sig, val)
 
+	// object
+
+	_ Msg = &RqObject{} // <- RqO (key)
+	_ Msg = &Object{}   // -> O   (val)
+
 	// objects
 
-	_ Msg = &RqObject{} // <- RqO (key, prefetch)
-	_ Msg = &Object{}   // -> O   (val, vals)
+	_ Msg = &RqObjects{} // <- RqOs (keys)
+	_ Msg = &Objects{}   // -> Os (vals)
 
 	// preview
 
@@ -107,8 +112,10 @@ func (*Pong) Encode() []byte {
 
 // A Syn is handshake initiator message
 type Syn struct {
-	Protocol uint16
+	Protocol uint16        // version
 	NodeID   cipher.PubKey // node id
+	Features uint64        // features flags
+	Data     []byte        // reserved for future
 }
 
 // Type implements Msg interface
@@ -121,7 +128,9 @@ func (s *Syn) Encode() []byte { return encode(s) }
 // if handshake has been accepted.
 // Otherwise, the Err returned
 type Ack struct {
-	NodeID cipher.PubKey // node id
+	NodeID   cipher.PubKey // node id
+	Features uint64        // features
+	Data     []byte        // reserved for future
 }
 
 // Type implements Msg interface
@@ -242,6 +251,11 @@ type Root struct {
 	Value []byte // encoded Root in person
 
 	Sig cipher.Sig // signature
+
+	// optional fields, that depends on features
+
+	CreatedHashes []cipher.SHA256 // hashes of created objects
+	Created       []byte          // created objects
 }
 
 // Type implements Msg interface
@@ -251,7 +265,7 @@ func (*Root) Type() Type { return RootType }
 func (r *Root) Encode() []byte { return encode(r) }
 
 //
-// objects
+// object
 //
 
 // A RqObject represents a Msg that request a data by hash
@@ -275,6 +289,32 @@ func (*Object) Type() Type { return ObjectType }
 
 // Encode the Object
 func (o *Object) Encode() []byte { return encode(o) }
+
+//
+// objects
+//
+
+// A RqObjects represents a Msg that request a data by list of hashes
+type RqObjects struct {
+	Keys []cipher.SHA256 // request
+}
+
+// Type implements Msg interface
+func (*RqObjects) Type() Type { return RqObjectsType }
+
+// Encode the RqObjects
+func (r *RqObjects) Encode() []byte { return encode(r) }
+
+// Objects reperesents encoded objects
+type Objects struct {
+	Values [][]byte // encoded objects
+}
+
+// Type implements Msg interface
+func (*Objects) Type() Type { return ObjectsType }
+
+// Encode the Objects
+func (o *Objects) Encode() []byte { return encode(o) }
 
 //
 // preview
@@ -320,7 +360,10 @@ const (
 	RqObjectType // 12
 	ObjectType   // 13
 
-	RqPreviewType // 14
+	RqObjectsType // 14
+	ObjectsType   // 15
+
+	RqPreviewType // 16
 )
 
 // Type to string mapping
@@ -344,6 +387,9 @@ var msgTypeString = [...]string{
 
 	RqObjectType: "RqObject",
 	ObjectType:   "Object",
+
+	RqObjects: "RqObjects",
+	Objects:   "Objects",
 
 	RqPreviewType: "RqPreview",
 }
@@ -376,6 +422,9 @@ var forwardRegistry = [...]reflect.Type{
 
 	RqObjectType: reflect.TypeOf(RqObject{}),
 	ObjectType:   reflect.TypeOf(Object{}),
+
+	RqObjectsType: reflect.TypeOf(RqObjects{}),
+	ObjectsType:   reflect.TypeOf(Objects{}),
 
 	RqPreviewType: reflect.TypeOf(RqPreview{}),
 }
