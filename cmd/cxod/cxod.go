@@ -17,6 +17,7 @@ import (
 // defaults
 const (
 	cleaningInterval      time.Duration = 1 * time.Minute  // 1m
+	cleaningTimeout       time.Duration = 2 * time.Second  // 2s
 	staleObjectsThreshold int           = 16 * 1024 * 1204 // 16M
 	historyLength         int           = 100              // 100 Root objects
 )
@@ -110,7 +111,7 @@ func clean(n *node.Node) {
 		return
 	}
 
-	if err = cxoutils.RemoveObjects(c); err != nil {
+	if err = cxoutils.RemoveObjects(c, cleaningTimeout); err != nil {
 		log.Fatal(err)
 	}
 

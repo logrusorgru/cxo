@@ -15,6 +15,8 @@
 package cxoutils
 
 import (
+	"time"
+
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/skycoin/cxo/data"
@@ -83,13 +85,33 @@ func RemoveRootObjects(c *skyobject.Container, keepLast int) (err error) {
 }
 
 // RemoveObjects with rc == 0 from CXDS
-func RemoveObjects(c *skyobject.Container) (err error) {
+func RemoveObjects(c *skyobject.Container, timeout time.Duration) (err error) {
 
-	var db = c.DB().CXDS()
+	var (
+		db = c.DB().CXDS()
+
+		tc <-chan time.Time
+	)
+
+	if timeout > 0 {
+		var tm = time.NewTimer(timeout)
+		tc = tm.C
+		defer tm.Stop()
+	}
 
 	err = db.IterateDel(
-		func(key cipher.SHA256, rc uint32, _ []byte) (bool, error) {
-			return (rc == 0) && (c.IsCached(key) == false), nil
+		func(key cipher.SHA256, rc uint32, _ []byte) (del bool, err error) {
+
+			// delte if rc is zero and value is not cached
+			del = (rc == 0) && (c.IsCached(key) == false)
+
+			select {
+			case <-tc:
+				err = data.ErrStopIteration // stop by timeout
+			default:
+			}
+
+			return
 		})
 
 	return
