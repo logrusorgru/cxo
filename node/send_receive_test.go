@@ -37,14 +37,14 @@ func getTestConfig(prefix string) (c *Config) {
 	c.TCP.Listen = "127.0.0.1:8087"
 	c.TCP.Discovery = Addresses{}           // blank
 	c.TCP.ResponseTimeout = 1 * time.Second //
-	c.TCP.Pings = 0                         // no pings
-	c.RPC = ""                              // no rpc
+	//c.TCP.Pings = 0                         // no pings
+	c.RPC = "" // no rpc
 
 	c.UDP.Listen = "127.0.0.1:8087"
 	c.UDP.Discovery = Addresses{}           // blank
 	c.UDP.ResponseTimeout = 1 * time.Second //
-	c.UDP.Pings = 0                         // no pings
-	c.RPC = ""                              // no rpc
+	//c.UDP.Pings = 0                         // no pings
+	c.RPC = "" // no rpc
 
 	if testing.Verbose() == true {
 		c.Logger.Debug = true

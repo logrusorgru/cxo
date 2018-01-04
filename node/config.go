@@ -22,8 +22,10 @@ const (
 	ListenUDP       string        = "" // don't listen
 	RPCAddress      string        = ":8871"
 	ResponseTimeout time.Duration = 59 * time.Second
-	Pings           time.Duration = 118 * time.Second
-	Public          bool          = false
+
+	//Pings           time.Duration = 118 * time.Second
+
+	Public bool = false
 )
 
 // Addresses are discovery addresses
@@ -136,7 +138,8 @@ type NetConfig struct {
 	// calling the (*Conn).Ping method. If peer doesn't
 	// response for a ping, then connection will be
 	// closed with ErrTimeout.
-	Pings time.Duration
+	//
+	// Pings time.Duration
 }
 
 // A Config represents configurations
@@ -283,7 +286,7 @@ func NewConfig() (c *Config) {
 	c.MaxHeads = MaxHeads
 
 	c.TCP.Listen = ListenTCP
-	c.TCP.Pings = Pings
+	//c.TCP.Pings = Pings
 	c.TCP.ResponseTimeout = ResponseTimeout
 
 	c.UDP.Listen = ListenUDP
@@ -355,10 +358,10 @@ func (c *Config) FromFlags() {
 		c.TCP.ResponseTimeout,
 		"response timeout of TCP connections")
 
-	flag.DurationVar(&c.TCP.Pings,
-		"tcp-pings",
-		c.TCP.Pings,
-		"pings interval of TCP connections")
+	// flag.DurationVar(&c.TCP.Pings,
+	// 	"tcp-pings",
+	// 	c.TCP.Pings,
+	// 	"pings interval of TCP connections")
 
 	// UDP
 
@@ -372,10 +375,10 @@ func (c *Config) FromFlags() {
 		c.UDP.ResponseTimeout,
 		"response timeout of UDP connections")
 
-	flag.DurationVar(&c.UDP.Pings,
-		"udp-pings",
-		c.UDP.Pings,
-		"pings interval of UDP connections")
+	// flag.DurationVar(&c.UDP.Pings,
+	// 	"udp-pings",
+	// 	c.UDP.Pings,
+	// 	"pings interval of UDP connections")
 
 	// public
 

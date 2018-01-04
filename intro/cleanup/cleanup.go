@@ -305,7 +305,7 @@ func cleanup(
 		fmt.Println("  cleaning objects....")
 		tp = time.Now()
 
-		if err = cxoutils.RemoveObjects(c); err != nil {
+		if err = cxoutils.RemoveObjects(c, 0); err != nil {
 			log.Fatal(err)
 		}
 
