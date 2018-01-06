@@ -75,7 +75,7 @@ func Test_preview(t *testing.T) {
 	// preview
 
 	err = c.Preview(pk,
-		func(pp registry.Pack, r *registry.Root) (subscribe bool) {
+		func(pp registry.Pack, r *registry.Root) (_ error) {
 
 			if len(r.Refs) != 2 {
 				t.Error("wrong Root.Refs length")
@@ -110,7 +110,7 @@ func Test_preview(t *testing.T) {
 				t.Error("wrong length of Posts")
 			}
 
-			return false
+			return
 		})
 
 	if err != nil {
@@ -200,7 +200,7 @@ func Test_preview_refs(t *testing.T) {
 	// preview
 
 	err = c.Preview(pk,
-		func(pp registry.Pack, r *registry.Root) (subscribe bool) {
+		func(pp registry.Pack, r *registry.Root) (_ error) {
 
 			if len(r.Refs) != 2 {
 				t.Error("wrong Root.Refs length")
@@ -235,7 +235,7 @@ func Test_preview_refs(t *testing.T) {
 				t.Error("wrong length of Posts")
 			}
 
-			return false
+			return
 		})
 
 	if err != nil {

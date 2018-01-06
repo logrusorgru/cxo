@@ -10,6 +10,7 @@ import (
 	discovery "github.com/skycoin/net/skycoin-messenger/factory"
 
 	"github.com/skycoin/cxo/node/log"
+	"github.com/skycoin/cxo/node/msg"
 	"github.com/skycoin/cxo/skyobject"
 	"github.com/skycoin/cxo/skyobject/registry"
 	"github.com/skycoin/cxo/skyobject/statutil"
@@ -28,7 +29,9 @@ type Node struct {
 
 	log.Logger                       // logger
 	id         *discovery.SeedConfig // unique random identifier
-	c          *skyobject.Container  // related Container
+	features   msg.Features          // features of the node
+
+	c *skyobject.Container // related Container
 
 	idpk cipher.PubKey // id.PublicKey (string -> pk)
 
@@ -121,16 +124,22 @@ func NewNodeContainer(
 		return // invalid
 	}
 
+	// init RPC TLS configurations
+	if err = conf.RPC.Init(); err != nil {
+		return // can't load certificate
+	}
+
 	n = new(Node)
 
 	n.id = discovery.NewSeedConfig()
 	n.idpk, _ = cipher.PubKeyFromHex(n.id.PublicKey)
+	n.features = conf.Features
 	n.c = c
 	n.fs = newNodeFeeds(n)
 	n.ic = make(map[cipher.PubKey]*Conn)
 	n.pc = make(map[*Conn]struct{})
 
-	n.config = conf
+	n.config = conf              // keep
 	n.config.Config = c.Config() // actual
 
 	n.fillavg = statutil.NewDuration(conf.Config.RollAvgSamples)
@@ -162,11 +171,11 @@ func NewNodeContainer(
 
 	// rpc
 
-	if conf.RPC != "" {
+	if conf.RPC.Listen != "" {
 
 		n.rpc = n.newRPC()
 
-		if err = n.rpc.Listen(conf.RPC); err != nil {
+		if err = n.rpc.Listen(&conf.RPC); err != nil {
 			n.Close()
 			return
 		}
@@ -182,8 +191,6 @@ func NewNodeContainer(
 	for _, address := range conf.UDP.Discovery {
 		n.UDP().ConnectToDiscoveryServer(address)
 	}
-
-	// TODO (kostyarin): pings (move to connection)
 
 	return
 }

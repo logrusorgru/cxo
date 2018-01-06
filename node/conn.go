@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/skycoin/skycoin/src/cipher"
+	"github.com/skycoin/skycoin/src/cipher/encoder"
 
 	"github.com/skycoin/net/factory"
 
@@ -27,8 +28,9 @@ type Conn struct {
 
 	incoming bool // is incoming or not
 
-	n      *Node         // back reference
-	peerID cipher.PubKey // peer id
+	n        *Node         // back reference
+	peerID   cipher.PubKey // peer id
+	features msg.Features  // peer features
 
 	// request - response
 	seq  uint32                    // messege seq number (for request-response)
@@ -289,7 +291,7 @@ func (c *Conn) Unsubscribe(feed cipher.PubKey) {
 // function returns true, then the Node and the Connection
 // will be subscribed to the feed. Given Pack and given Root
 // can't be used outside the function.
-type PreviewFunc func(pack registry.Pack, r *registry.Root) (subscribe bool)
+type PreviewFunc func(pack registry.Pack, r *registry.Root) (err error)
 
 // Preview a feed of remote peer. The request is blocking.
 // The Preview gets latest Root of given feed from remote
@@ -325,11 +327,7 @@ func (c *Conn) Preview(
 		return
 	}
 
-	if previewFunc(p, r) == true {
-		err = c.Subscribe(feed)
-	}
-
-	return
+	return previewFunc(p, r)
 }
 
 // implements skyobject.Getter
@@ -362,6 +360,74 @@ func (c *cget) Get(key cipher.SHA256) (val []byte, err error) {
 
 func (c *Conn) getter() (cg skyobject.Getter) {
 	return &cget{c}
+}
+
+//
+// raw reqeusts
+//
+
+// Object request obejct by hash from peer
+func (c *Conn) Object(key cipher.SHA256) (val []byte, err error) {
+	return (&cget{c}).Get(key)
+}
+
+// constant vlaue
+var blankRqObejctsLength = len(encoder.Serialize(msg.RqObjects{}))
+
+// Objects request objects by given keys. The request is optimistic.
+// Response never exceed skyobject.Config.MaxObjectSize limit.
+// And remote peer stops on first obejct not found. The remote peer
+// returns error if first object was not found. The request drops
+// last keys if request exceeds the MaxObjectSize limit
+func (c *Conn) Objects(keys ...cipher.SHA256) (vals [][]byte, err error) {
+
+	if len(keys) == 0 {
+		return
+	}
+
+	const keyLen = len(cipher.SHA256{})
+
+	// we have to fit skyobject.Config.MaxObjectSize;
+	// the frame variable below is number of hashes we
+	// can request by single messege
+
+	var frame = (c.n.c.Config().MaxObjectSize - blankRqObejctsLength) /
+		keyLen
+
+	if len(keys) > frame {
+		keys = keys[:frame] // drop last to fit the limit
+	}
+
+	// request
+
+	var reply msg.Msg
+	if reply, err = c.sendRequest(&msg.RqObjects{Keys: keys}); err != nil {
+		return
+	}
+
+	switch x := reply.(type) {
+	case *msg.Objects:
+
+		if len(x.Values) > len(keys) {
+			return nil, errors.New("to many values received")
+		}
+
+		// check hashes
+		for i, val := range x.Values {
+			if cipher.SumSHA256(val) != keys[i] {
+				return nil, errors.New("wrong object received (different hash)")
+			}
+		}
+
+		vals = x.Values
+	case *msg.Err:
+		return nil, errors.New("error: " + x.Err)
+	default:
+		return nil, fmt.Errorf("invalid msg type received: %T", reply)
+	}
+
+	return
+
 }
 
 //

@@ -33,18 +33,17 @@ func getTestConfig(prefix string) (c *Config) {
 	c = NewConfig()
 	c.Logger.Prefix = "[" + prefix + "] "
 	c.Config.InMemoryDB = true // use in-memory DB
+	c.RPC.Listen = ""          // no rpc
 
 	c.TCP.Listen = "127.0.0.1:8087"
 	c.TCP.Discovery = Addresses{}           // blank
 	c.TCP.ResponseTimeout = 1 * time.Second //
 	//c.TCP.Pings = 0                         // no pings
-	c.RPC = "" // no rpc
 
 	c.UDP.Listen = "127.0.0.1:8087"
 	c.UDP.Discovery = Addresses{}           // blank
 	c.UDP.ResponseTimeout = 1 * time.Second //
 	//c.UDP.Pings = 0                         // no pings
-	c.RPC = "" // no rpc
 
 	if testing.Verbose() == true {
 		c.Logger.Debug = true

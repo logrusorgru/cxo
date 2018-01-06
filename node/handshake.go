@@ -49,6 +49,7 @@ func (c *Conn) performHandshake(nodeCloseq <-chan struct{}) (err error) {
 		c.encodeMsg(seq, 0, &msg.Syn{
 			Protocol: msg.Version,
 			NodeID:   c.n.idpk,
+			Features: c.n.features,
 		}),
 		nodeCloseq,
 	)
@@ -58,19 +59,11 @@ func (c *Conn) performHandshake(nodeCloseq <-chan struct{}) (err error) {
 	}
 
 	var (
-		rt time.Duration
-
 		tm *time.Timer
 		tc <-chan time.Time
 	)
 
-	if c.IsTCP() == true {
-		rt = c.n.config.TCP.ResponseTimeout
-	} else {
-		rt = c.n.config.UDP.ResponseTimeout
-	}
-
-	if rt > 0 {
+	if rt := c.responseTimeout(); rt > 0 {
 		tm = time.NewTimer(rt)
 		tc = tm.C
 
@@ -184,12 +177,14 @@ func (c *Conn) acceptHandshake(nodeCloseq <-chan struct{}) (err error) {
 		}
 
 		c.peerID = x.NodeID
+		c.features = x.Features
 
 		// (2) send Ack back
 
 		err = c.sendNodeCloseq(
 			c.encodeMsg(c.nextSeq(), seq, &msg.Ack{
-				NodeID: c.n.idpk,
+				NodeID:   c.n.idpk,
+				Features: c.n.features,
 			}),
 			nodeCloseq,
 		)

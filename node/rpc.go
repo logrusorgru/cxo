@@ -1,6 +1,7 @@
 package node
 
 import (
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/rpc"
@@ -25,7 +26,7 @@ func (n *Node) newRPC() (r *rpcServer) {
 	return
 }
 
-func (r *rpcServer) Listen(address string) (err error) {
+func (r *rpcServer) Listen(conf *RPCConfig) (err error) {
 
 	r.r.RegisterName("node", &RPC{r.n})
 
@@ -34,7 +35,13 @@ func (r *rpcServer) Listen(address string) (err error) {
 
 	r.r.RegisterName("root", &RootRPC{r.n})
 
-	if r.l, err = net.Listen("tcp", address); err != nil {
+	if conf.TLS == nil {
+		r.l, err = net.Listen("tcp", conf.Listen) // TCP
+	} else {
+		r.l, err = tls.Listen("tcp", conf.Listen, conf.TLS) // TLS over TCP
+	}
+
+	if err != nil {
 		return
 	}
 

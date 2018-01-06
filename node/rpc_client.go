@@ -1,6 +1,8 @@
 package node
 
 import (
+	"crypto/tls"
+	"net"
 	"net/rpc"
 
 	"github.com/skycoin/skycoin/src/cipher"
@@ -12,6 +14,28 @@ import (
 // RPC methods of the Node
 type RPCClient struct {
 	c *rpc.Client
+}
+
+// NewRPCClient creates RPC client connected to RPC server with
+// given address. If given TLS config is not nil, then it used to
+// create TLS connection
+func NewRPCClient(address string, conf *tls.Config) (rc *RPCClient, err error) {
+
+	var cn net.Conn // RPC connection
+
+	if conf == nil {
+		cn, err = net.Dial("tcp", address)
+	} else {
+		cn, err = tls.Dial("tcp", address, conf)
+	}
+
+	if err != nil {
+		return
+	}
+
+	rc = new(RPCClient)
+	rc.c = rpc.NewClient(cn) // RPC closes the connection on Close
+	return
 }
 
 // Close client
@@ -37,18 +61,6 @@ func (r *RPCClient) UDP() (t *RPCClientUDP) {
 // Root objects related methods
 func (r *RPCClient) Root() (t *RPCClientRoot) {
 	return &RPCClientRoot{r}
-}
-
-// NewRPCClient creates RPC client connected to RPC server with
-// given address
-func NewRPCClient(address string) (rc *RPCClient, err error) {
-	var c *rpc.Client
-	if c, err = rpc.Dial("tcp", address); err != nil {
-		return
-	}
-	rc = new(RPCClient)
-	rc.c = c
-	return
 }
 
 // An RPCClientNode implements RPC

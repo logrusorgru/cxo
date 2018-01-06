@@ -1,6 +1,7 @@
 package node
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/skycoin/cxo/node/log"
+	"github.com/skycoin/cxo/node/msg"
 	"github.com/skycoin/cxo/skyobject"
 	"github.com/skycoin/cxo/skyobject/registry"
 )
@@ -22,6 +24,7 @@ const (
 	ListenUDP       string        = "" // don't listen
 	RPCAddress      string        = ":8871"
 	ResponseTimeout time.Duration = 59 * time.Second
+	Features        msg.Features  = msg.CreatedObjects
 
 	//Pings           time.Duration = 118 * time.Second
 
@@ -142,6 +145,41 @@ type NetConfig struct {
 	// Pings time.Duration
 }
 
+// An RPCConfig represents RPC configurations.
+// Set Listen to empty string to disable RPC.
+// Provide own tls config using TLS field. Provide
+// paths to cert and key fiels to load certificate
+// from.
+type RPCConfig struct {
+	Listen string      // listening address, ue ":0" for OS-choosed
+	Cert   string      // TLS cert file
+	Key    string      // TLS key file
+	TLS    *tls.Config // TLS config
+}
+
+// Init loads TLS certificates from files if need
+func (r *RPCConfig) Init() (err error) {
+
+	if r.Listen == "" {
+		return // RPC is disabled
+	}
+
+	var crt tls.Certificate
+
+	if r.Cert != "" || r.Key != "" {
+		if crt, err = tls.LoadX509KeyPair(r.Cert, r.Key); err != nil {
+			return
+		}
+	}
+
+	if r.TLS == nil {
+		r.TLS = new(tls.Config)
+	}
+
+	r.TLS.Certificates = append(r.TLS.Certificates, crt)
+	return
+}
+
 // A Config represents configurations
 // of the Node. To create Config filled
 // with default values use NewConfig
@@ -156,6 +194,9 @@ type Config struct {
 	// Config is configurations of skyobject.Container.
 	// Use nil for defaults.
 	*skyobject.Config
+
+	// Features is protocol features
+	Features msg.Features
 
 	// MaxConnections is limit of connections.
 	// Set it to zero to disable the limit.
@@ -190,9 +231,8 @@ type Config struct {
 	// limit.
 	MaxFillingTime time.Duration
 
-	// RPC is RPC listening address. Empty string
-	// disables RPC.
-	RPC string
+	// RPC configurations
+	RPC RPCConfig
 
 	//
 	// Networks
@@ -281,6 +321,7 @@ func NewConfig() (c *Config) {
 	c.Config = skyobject.NewConfig()
 
 	// node
+	c.Features = Features
 	c.MaxConnections = MaxConnections
 	c.MaxFillingTime = MaxFillingTime
 	c.MaxHeads = MaxHeads
@@ -292,7 +333,7 @@ func NewConfig() (c *Config) {
 	c.UDP.Listen = ListenUDP
 	c.UDP.ResponseTimeout = ResponseTimeout
 
-	c.RPC = RPCAddress
+	c.RPC.Listen = RPCAddress
 	c.Public = Public
 
 	return
@@ -326,6 +367,10 @@ func (c *Config) FromFlags() {
 
 	// node
 
+	flag.Var(&c.Features,
+		"feat",
+		"node features, use 'no', 'created_hashes' or 'created_objects'")
+
 	flag.IntVar(&c.MaxConnections,
 		"max-connections",
 		c.MaxConnections,
@@ -341,10 +386,20 @@ func (c *Config) FromFlags() {
 		c.MaxHeads,
 		"max heads of a feed allowed")
 
-	flag.StringVar(&c.RPC,
+	flag.StringVar(&c.RPC.Listen,
 		"rpc",
-		c.RPC,
+		c.RPC.Listen,
 		"RPC listening address")
+
+	flag.StringVar(&c.RPC.Cert,
+		"rpc-cert",
+		c.RPC.Cert,
+		"RPC TLS *.crt file path")
+
+	flag.StringVar(&c.RPC.Key,
+		"rpc-key",
+		c.RPC.Cert,
+		"RPC TLS *.key file path")
 
 	// TCP
 
@@ -357,6 +412,10 @@ func (c *Config) FromFlags() {
 		"tcp-response-timeout",
 		c.TCP.ResponseTimeout,
 		"response timeout of TCP connections")
+
+	flag.Var(&c.TCP.Discovery,
+		"tcp-discovery",
+		"address of TCP discovery server (allow many)")
 
 	// flag.DurationVar(&c.TCP.Pings,
 	// 	"tcp-pings",
@@ -375,6 +434,10 @@ func (c *Config) FromFlags() {
 		c.UDP.ResponseTimeout,
 		"response timeout of UDP connections")
 
+	flag.Var(&c.UDP.Discovery,
+		"udp-discovery",
+		"address of UDP discovery server (allow many)")
+
 	// flag.DurationVar(&c.UDP.Pings,
 	// 	"udp-pings",
 	// 	c.UDP.Pings,
@@ -390,7 +453,7 @@ func (c *Config) FromFlags() {
 }
 
 // Validate configurations. The Validate doesn't
-// validates addresses (TCP, UDP or RPC)
+// validates addresses (TCP, UDP or RPC).
 func (c *Config) Validate() (err error) {
 
 	// nothing to validate in the Logger configurations
@@ -402,8 +465,7 @@ func (c *Config) Validate() (err error) {
 		}
 	}
 
-	// nothing to validate in the Node configs
+	err = c.Features.Validate()
 
 	return
-
 }

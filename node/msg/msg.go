@@ -19,13 +19,81 @@ import (
 // Version is current protocol version
 const Version uint16 = 4
 
+// Features of a node
+type Features uint64
+
+// features
+const (
+	// CreatedHashes is feature that pushes hashes of
+	// created objects with new created Root.
+	CreatedHashes Features = 1 << iota
+	// CreatedObjects (mutual exclusive with the CreatedHashes feature)
+	// puses created objects instead of hashes
+	CreatedObjects
+)
+
+// Validate the Features
+func (f Features) Validate() (err error) {
+
+	if f == 0 {
+		return
+	}
+
+	if f&CreatedHashes != 0 && f&CreatedObjects != 0 {
+		return errors.New("mutual exclusive features")
+	}
+
+	if f&^(CreatedHashes|CreatedObjects) != 0 {
+		return errors.New("unknown features")
+	}
+
+	return
+}
+
+// String implements fmt.Stringer interface and
+// returns human-readable list of features
+func (f Features) String() (fts string) {
+
+	if f == 0 {
+		return "no"
+	}
+
+	if f&CreatedHashes != 0 {
+		return "created_hashes"
+	}
+
+	if f&CreatedObjects != 0 {
+		return "created_objects"
+	}
+
+	return fmt.Sprintf("unknown features %b", f)
+}
+
+// Set implements flag.Value interface
+func (f *Features) Set(feat string) (err error) {
+
+	switch feat {
+	case "no":
+		*f = 0
+	case "created_hashes":
+		if (*f)&CreatedObjects != 0 {
+			return errors.New("mutual exclusive features")
+		}
+		*f = *f | CreatedHashes
+	case "created_objects":
+		if (*f)&CreatedHashes != 0 {
+			return errors.New("mutual exclusive features")
+		}
+		*f = *f | CreatedObjects
+	default:
+		err = errors.New("unknow feature: " + feat)
+	}
+
+	return
+}
+
 // be sure that all messages implements Msg interface compiler time
 var (
-
-	// pings
-
-	_ Msg = &Ping{} // -> Ping
-	_ Msg = &Pong{} // <- Pong
 
 	// handshake
 
@@ -44,7 +112,7 @@ var (
 
 	// public server features
 
-	_ Msg = &RqList{} // <- GetList ()
+	_ Msg = &RqList{} // <- RqList ()
 	_ Msg = &List{}   // -> Lsit  (feeds)
 
 	// root (push and done)
@@ -77,36 +145,6 @@ type Msg interface {
 }
 
 //
-// pings
-//
-
-// A Ping messege
-type Ping struct{}
-
-// Type implements Msg interface
-func (*Ping) Type() Type { return PingType }
-
-// Encode the Ping
-func (*Ping) Encode() []byte {
-	return []byte{
-		byte(PingType),
-	}
-}
-
-// A Pong messege
-type Pong struct{}
-
-// Type implements Msg interface
-func (*Pong) Type() Type { return PongType }
-
-// Encode the Pong
-func (*Pong) Encode() []byte {
-	return []byte{
-		byte(PongType),
-	}
-}
-
-//
 // handshake
 //
 
@@ -114,7 +152,7 @@ func (*Pong) Encode() []byte {
 type Syn struct {
 	Protocol uint16        // version
 	NodeID   cipher.PubKey // node id
-	Features uint64        // features flags
+	Features Features      // features flags
 	Data     []byte        // reserved for future
 }
 
@@ -129,7 +167,7 @@ func (s *Syn) Encode() []byte { return encode(s) }
 // Otherwise, the Err returned
 type Ack struct {
 	NodeID   cipher.PubKey // node id
-	Features uint64        // features
+	Features Features      // features
 	Data     []byte        // reserved for future
 }
 
@@ -254,8 +292,8 @@ type Root struct {
 
 	// optional fields, that depends on features
 
-	CreatedHashes []cipher.SHA256 // hashes of created objects
-	Created       []byte          // created objects
+	CreatedHashes  []cipher.SHA256 // hashes of created objects
+	CreatedObjects [][]byte        // created objects
 }
 
 // Type implements Msg interface
@@ -294,7 +332,13 @@ func (o *Object) Encode() []byte { return encode(o) }
 // objects
 //
 
-// A RqObjects represents a Msg that request a data by list of hashes
+// A RqObjects represents a Msg that request a data
+// by list of hashes. The request objects used to request
+// many small obejcts. A peer returns all it can. E.g.
+// by this request it sends all obejcts before first
+// not found objects. And before skyobejct.MaxObjectSize
+// limit. Thus, the request is optimistic and can be
+// useful only for many small objects.
 type RqObjects struct {
 	Keys []cipher.SHA256 // request
 }
@@ -305,7 +349,9 @@ func (*RqObjects) Type() Type { return RqObjectsType }
 // Encode the RqObjects
 func (r *RqObjects) Encode() []byte { return encode(r) }
 
-// Objects reperesents encoded objects
+// Objects reperesents encoded objects. The messege never
+// exceed skyobejct.MaxObjectSize limit. And the messege
+// can contains not all requeted obejcts
 type Objects struct {
 	Values [][]byte // encoded objects
 }
@@ -340,37 +386,31 @@ type Type uint8
 
 // Types
 const (
-	PingType = 1 + iota // 1
-	PongType            // 2
+	SynType = 1 + iota // 1
+	AckType            // 2
 
-	SynType // 3
-	AckType // 4
+	OkType  // 3
+	ErrType // 4
 
-	OkType  // 5
-	ErrType // 6
+	SubType   // 5
+	UnsubType // 6
 
-	SubType   // 7
-	UnsubType // 8
+	RqListType // 7
+	ListType   // 8
 
-	RqListType // 9
-	ListType   // 10
+	RootType // 9
 
-	RootType // 11
+	RqObjectType // 10
+	ObjectType   // 11
 
-	RqObjectType // 12
-	ObjectType   // 13
+	RqObjectsType // 12
+	ObjectsType   // 13
 
-	RqObjectsType // 14
-	ObjectsType   // 15
-
-	RqPreviewType // 16
+	RqPreviewType // 14
 )
 
 // Type to string mapping
 var msgTypeString = [...]string{
-	PingType: "Ping",
-	PongType: "Pong",
-
 	SynType: "Syn",
 	AckType: "Ack",
 
@@ -388,8 +428,8 @@ var msgTypeString = [...]string{
 	RqObjectType: "RqObject",
 	ObjectType:   "Object",
 
-	RqObjects: "RqObjects",
-	Objects:   "Objects",
+	RqObjectsType: "RqObjects",
+	ObjectsType:   "Objects",
 
 	RqPreviewType: "RqPreview",
 }
@@ -403,9 +443,6 @@ func (m Type) String() string {
 }
 
 var forwardRegistry = [...]reflect.Type{
-	PingType: reflect.TypeOf(Ping{}),
-	PongType: reflect.TypeOf(Pong{}),
-
 	SynType: reflect.TypeOf(Syn{}),
 	AckType: reflect.TypeOf(Ack{}),
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -23,8 +24,8 @@ import (
 
 // defaults
 const (
-	HISTORY = ".cxocli.history" // history file name
-	ADDRESS = "[::]:8871"       // default RPC address to connect to
+	History = ".cxocli.history" // history file name
+	Address = "[::]:8871"       // default RPC address to connect to
 )
 
 var (
@@ -93,11 +94,15 @@ var (
 func main() {
 
 	var (
-		address string
-		execute string
+		address string // node assress
+		cert    string // TLS cert fiel path
+		key     string // TLS key file path
+		execute string // execute command
 
 		rpc = new(client)
 		err error
+
+		conf *tls.Config
 
 		line *liner.State
 		cmd  string
@@ -119,12 +124,20 @@ func main() {
 
 	flag.StringVar(&address,
 		"a",
-		ADDRESS,
+		Address,
 		"rpc address")
 	flag.StringVar(&execute,
 		"e",
 		"",
 		"execute command and exit")
+	flag.StringVar(&cert,
+		"cert",
+		"",
+		"path to TLS *.crt file to  use TLS conenction")
+	flag.StringVar(&key,
+		"key",
+		"",
+		"path to TLS *.key file to  use TLS conenction")
 
 	flag.BoolVar(&help,
 		"h",
@@ -139,13 +152,32 @@ func main() {
 		return
 	}
 
+	// we have to clsoe the liner properly;
+	// thus we are using Fprintln and the code
+	// instead of log.Fatal
+
 	if address == "" {
 		fmt.Fprintln(os.Stderr, "empty address")
 		code = 1
 		return
 	}
 
-	if rpc.r, err = node.NewRPCClient(address); err != nil {
+	if cert != "" || key != "" {
+
+		var crt tls.Certificate
+
+		if crt, err = tls.LoadX509KeyPair(cert, key); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			code = 1
+			return
+		}
+
+		conf = new(tls.Config)
+		conf.Certificates = append(conf.Certificates, crt)
+
+	}
+
+	if rpc.r, err = node.NewRPCClient(address, conf); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		code = 1
 		return
@@ -204,7 +236,7 @@ func main() {
 }
 
 func histroyFilePath() (hf string, err error) {
-	hf = filepath.Join(skyobject.DataDir(), HISTORY)
+	hf = filepath.Join(skyobject.DataDir(), History)
 	return
 }
 
