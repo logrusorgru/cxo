@@ -2,6 +2,7 @@ package node
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"time"
@@ -16,17 +17,24 @@ import (
 
 // default configurations
 const (
-	Prefix          string        = "[node] "
-	MaxConnections  int           = 1000 * 1000
-	MaxFillingTime  time.Duration = 10 * time.Minute
-	MaxHeads        int           = 10
-	ListenTCP       string        = ":8870"
-	ListenUDP       string        = "" // don't listen
-	RPCAddress      string        = ":8871"
+	Prefix         string        = "[node] "
+	MaxConnections int           = 1000 * 1000
+	MaxFillingTime time.Duration = 10 * time.Minute
+	MaxHeads       int           = 10
+
+	ListenTCP  string = ":8870"
+	ListenUDP  string = ""      // don't listen by default
+	ListenHTTP string = ":8872" // websockets
+
+	WSPath   string = "ws"  // default websockets path
+	HTTPPath string = "cxo" // default http path
+
+	RPCAddress string = ":8873"
+
 	ResponseTimeout time.Duration = 59 * time.Second
 	Features        msg.Features  = msg.CreatedObjects
 
-	//Pings           time.Duration = 118 * time.Second
+	Pings time.Duration = 118 * time.Second
 
 	Public bool = false
 )
@@ -145,39 +153,122 @@ type NetConfig struct {
 	// Pings time.Duration
 }
 
-// An RPCConfig represents RPC configurations.
-// Set Listen to empty string to disable RPC.
-// Provide own tls config using TLS field. Provide
-// paths to cert and key fiels to load certificate
-// from.
-type RPCConfig struct {
-	Listen string      // listening address, ue ":0" for OS-choosed
-	Cert   string      // TLS cert file
-	Key    string      // TLS key file
-	TLS    *tls.Config // TLS config
+func (n *NetConfig) FromFlags(prefix, ofWhat string) {
+
+	flag.StringVar(&n.Listen,
+		prefix,
+		n.Listen,
+		ofWhat+" listening address")
+
+	flag.DurationVar(&n.ResponseTimeout,
+		prefix+"-response-timeout",
+		n.ResponseTimeout,
+		"response timeout of "+ofWhat+" connections")
+
+	flag.Var(&n.Discovery,
+		prefix+"-discovery",
+		"address of "+ofWhat+" discovery server (allow many)")
+
+	// flag.DurationVar(&c.TCP.Pings,
+	// 	"tcp-pings",
+	// 	c.TCP.Pings,
+	// 	"pings interval of TCP connections")
+
+}
+
+// TLSConfig contains TLS configurations. It
+// allows to use own TLS config. And load certificates
+// from file, joining with existing config, etc
+type TLSConfig struct {
+	// TLS. If Cert and Key fields are not empty and/or
+	// TLS field is not nil, then TLS is enalbed.
+	//
+	// Cert is path to TLS *.crt file to enable TLS.
+	Cert string
+	// Key is path it TLS *.key file to enable TLS.
+	Key string
+
+	// TLS used to provide own TL config. If the config
+	// is not nil and the Cert and Key fields are not blank
+	// then certificates by the Cert and Key will be appended
+	// to the Config. If the config is nil, then default is
+	// used.
+	TLS *tls.Config
 }
 
 // Init loads TLS certificates from files if need
-func (r *RPCConfig) Init() (err error) {
-
-	if r.Listen == "" {
-		return // RPC is disabled
-	}
+func (t *TLSConfig) Init() (err error) {
 
 	var crt tls.Certificate
 
-	if r.Cert != "" || r.Key != "" {
-		if crt, err = tls.LoadX509KeyPair(r.Cert, r.Key); err != nil {
+	if t.Cert != "" || t.Key != "" {
+		if crt, err = tls.LoadX509KeyPair(t.Cert, t.Key); err != nil {
 			return
 		}
 	}
 
-	if r.TLS == nil {
-		r.TLS = new(tls.Config)
+	if t.TLS == nil {
+		t.TLS = new(tls.Config)
 	}
 
-	r.TLS.Certificates = append(r.TLS.Certificates, crt)
+	t.TLS.Certificates = append(t.TLS.Certificates, crt)
 	return
+}
+
+func (t *TLSConfig) FromFlags(prefix, forWhat string) {
+
+	flag.StringVar(&t.Cert,
+		prefix+"-cert",
+		t.Cert,
+		"TLS *.crt file path for "+forWhat)
+
+	flag.StringVar(&t.Key,
+		prefix+"-key",
+		t.Cert,
+		"RPC TLS *.key file path for "+forWhat)
+
+}
+
+// HTTPConfig represents configurations of
+// a HTTP and websockets networks
+type HTTPConfig struct {
+	// Listen is HTTP listening address. One of
+	// WSPath and HTTPPath fields should not be
+	// empty. Otherwise this config is invalid.
+	// Both fields (WSPath and HTTPPath can contain
+	// a path).
+	Listen string
+
+	// WSPath is path to handle websockets requests.
+	// Use empty string to disable websockets.
+	WSPath string
+	// HTTPPath is path to handle HTTP GET requests
+	// (to get JSON response). Use empty string to
+	// disable this feature.
+	HTTPPath string
+
+	// Pings is time after which a ping message will
+	// be sent through websockets conection if it's idle.
+	// Set to zero to disabel pings
+	Pings time.Duration
+
+	// ResponseTimeout if response timeout for
+	// websockets connections. Set to zero to disable
+	// timeout
+	ResponseTimeout time.Duration
+
+	// TLSConfig contains TLS configurations
+	TLSConfig
+}
+
+// An RPCConfig represents RPC configurations.
+// Set Listen to empty string to disable RPC.
+// Provide own TLS config using TLS field. Provide
+// paths to cert and key fiels to load certificate
+// from.
+type RPCConfig struct {
+	Listen    string // listening address, use ":0" for OS-choosed
+	TLSConfig        // TLS configurations
 }
 
 // A Config represents configurations
@@ -243,6 +334,10 @@ type Config struct {
 
 	// UDP configurations
 	UDP NetConfig
+
+	// HTTP contains configurations of HTTP and websockets
+	// networks.
+	HTTP HTTPConfig
 
 	//
 	// Connection callbacks
@@ -333,6 +428,12 @@ func NewConfig() (c *Config) {
 	c.UDP.Listen = ListenUDP
 	c.UDP.ResponseTimeout = ResponseTimeout
 
+	c.HTTP.Listen = ListenHTTP
+	c.HTTP.WSPath = WSPath
+	c.HTTP.HTTPPath = HTTPPath
+	c.HTTP.ResponseTimeout = ResponseTimeout
+	c.HTTP.Pings = Pings
+
 	c.RPC.Listen = RPCAddress
 	c.Public = Public
 
@@ -391,57 +492,44 @@ func (c *Config) FromFlags() {
 		c.RPC.Listen,
 		"RPC listening address")
 
-	flag.StringVar(&c.RPC.Cert,
-		"rpc-cert",
-		c.RPC.Cert,
-		"RPC TLS *.crt file path")
-
-	flag.StringVar(&c.RPC.Key,
-		"rpc-key",
-		c.RPC.Cert,
-		"RPC TLS *.key file path")
+	c.RPC.TLSConfig.FromFlags("rpc", "RPC")
 
 	// TCP
 
-	flag.StringVar(&c.TCP.Listen,
-		"tcp",
-		c.TCP.Listen,
-		"tcp listening address")
-
-	flag.DurationVar(&c.TCP.ResponseTimeout,
-		"tcp-response-timeout",
-		c.TCP.ResponseTimeout,
-		"response timeout of TCP connections")
-
-	flag.Var(&c.TCP.Discovery,
-		"tcp-discovery",
-		"address of TCP discovery server (allow many)")
-
-	// flag.DurationVar(&c.TCP.Pings,
-	// 	"tcp-pings",
-	// 	c.TCP.Pings,
-	// 	"pings interval of TCP connections")
+	c.TCP.FromFlags("tcp", "TCP")
 
 	// UDP
 
-	flag.StringVar(&c.UDP.Listen,
-		"udp",
-		c.UDP.Listen,
-		"udp listening address")
+	c.UDP.FromFlags("upd", "UDP")
 
-	flag.DurationVar(&c.UDP.ResponseTimeout,
-		"udp-response-timeout",
-		c.UDP.ResponseTimeout,
-		"response timeout of UDP connections")
+	// websockets
 
-	flag.Var(&c.UDP.Discovery,
-		"udp-discovery",
-		"address of UDP discovery server (allow many)")
+	flag.StringVar(&c.HTTP.Listen,
+		"http",
+		c.HTTP.Listen,
+		"http listening address")
 
-	// flag.DurationVar(&c.UDP.Pings,
-	// 	"udp-pings",
-	// 	c.UDP.Pings,
-	// 	"pings interval of UDP connections")
+	flag.StringVar(&c.HTTP.WSPath,
+		"ws-path",
+		c.HTTP.WSPath,
+		"path to handle webscoekts requests")
+
+	flag.StringVar(&c.HTTP.HTTPPath,
+		"http-path",
+		c.HTTP.HTTPPath,
+		"path to handle http GET requests")
+
+	flag.DurationVar(&c.HTTP.Pings,
+		"ws-pings",
+		c.HTTP.Pings,
+		"ping idle websockets connections")
+
+	flag.DurationVar(&c.HTTP.ResponseTimeout,
+		"ws-response-timeout",
+		c.HTTP.ResponseTimeout,
+		"response timeout for websockets connections")
+
+	c.HTTP.TLSConfig.FromFlags("ws", "websocket connections")
 
 	// public
 
@@ -465,7 +553,33 @@ func (c *Config) Validate() (err error) {
 		}
 	}
 
-	err = c.Features.Validate()
+	if err = c.Features.Validate(); err != nil {
+		return
+	}
+
+	if c.HTTP.Listen != "" {
+		if c.HTTP.HTTPPath == "" && c.HTTP.WSPath == "" {
+			return errors.New("HTTP configs: missing ws path of HTTP path")
+		}
+	}
+
+	return
+}
+
+// initTLS initializes TLS configurations loading files
+// if need
+func (c *Config) initTLS() (err error) {
+
+	if c.RPC.Listen != "" {
+		if err = c.RPC.TLSConfig.Init(); err != nil {
+			return
+		}
+	}
+
+	// should be already validated
+	if c.HTTP.Listen != "" {
+		err = c.HTTP.TLSConfig.Init()
+	}
 
 	return
 }

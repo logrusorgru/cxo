@@ -13,7 +13,62 @@ import (
 // protocol
 //
 // [1 byte] - type
-// [ .... ] - encoded message
+// [ .... ] - encoded message ([]byte)
+//
+
+// types
+//
+// # handshake messages
+//
+//  1. Syn         <- Syn (node id, protocol version, features, data)
+//  2. Ack         -> Ack (peer id, features, data)
+//
+// # responses
+//
+//  3. Ok         -> Ok ()
+//  4. Err        -> Err (error message)
+//
+// # subscriptions
+//
+//  5. Sub         <- Sub (feed)
+//  6. Unsub       <- Unsub (feed)
+//
+// # list of feeds of remote peer (if it's public)
+//
+//  7. RqList      <- RqList ()
+//  8. List        -> Lsit  (feeds)
+//
+// # root object (push)
+//
+//  9. Root        <- Root (feed, nonce, seq, sig, val)
+//
+// # request object and the object
+//
+// 10. RqObject    <- RqO (key)
+// 11. Object      -> O   (val)
+//
+// # request objects and the objects
+//
+// 12. RqObjects   <- RqOs (keys)
+// 13. Objects     -> Os (vals)
+//
+// # preview (request root)
+//
+// 14. RqPreview   -> RqPreview (feed)
+//
+// (messages above used between nodes, messeges below are for end-users)
+//
+// # request object with schema name (binary)
+//
+// 15. RqSchemaObject <- RqSO (feed, subtree, hash... (path))
+// 16. SchemaObject   -> SO (schema name, val)
+//
+// # JSON
+//
+// 17. RqJSON        <- RqJSON (feed, subtree, hash... (path))
+// 18. JSON          -> {"schema": "name", "value": {...}, "err": ""}
+//
+// # change (TODO: add Root, add object, replace object, delete object)
 //
 
 // Version is current protocol version
@@ -28,7 +83,7 @@ const (
 	// created objects with new created Root.
 	CreatedHashes Features = 1 << iota
 	// CreatedObjects (mutual exclusive with the CreatedHashes feature)
-	// puses created objects instead of hashes
+	// pushes created objects instead of hashes
 	CreatedObjects
 )
 
@@ -334,9 +389,9 @@ func (o *Object) Encode() []byte { return encode(o) }
 
 // A RqObjects represents a Msg that request a data
 // by list of hashes. The request objects used to request
-// many small obejcts. A peer returns all it can. E.g.
-// by this request it sends all obejcts before first
-// not found objects. And before skyobejct.MaxObjectSize
+// many small objects. A peer returns all it can. E.g.
+// by this request it sends all objects before first
+// not found objects. And before skyobject.MaxObjectSize
 // limit. Thus, the request is optimistic and can be
 // useful only for many small objects.
 type RqObjects struct {
@@ -350,8 +405,8 @@ func (*RqObjects) Type() Type { return RqObjectsType }
 func (r *RqObjects) Encode() []byte { return encode(r) }
 
 // Objects reperesents encoded objects. The messege never
-// exceed skyobejct.MaxObjectSize limit. And the messege
-// can contains not all requeted obejcts
+// exceed skyobject.MaxObjectSize limit. And the messege
+// can contains not all requeted objects
 type Objects struct {
 	Values [][]byte // encoded objects
 }

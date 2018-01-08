@@ -19,6 +19,30 @@ import (
 	"github.com/skycoin/cxo/skyobject/registry"
 )
 
+// A Network represents conenction type
+type Network int
+
+// connection types
+const (
+	NetworkTCP Network = iota // tcp
+	NetworkUDP                // upd
+	NetworkWS                 // websockets
+)
+
+func (n Network) String() (typ string) {
+	switch n {
+	case NetworkTCP:
+		typ = "tcp"
+	case NetworkUDP:
+		typ = "udp"
+	case NetworkWS:
+		typ = "ws"
+	default:
+		typ = fmt.Sprintf("Network<%d>", n)
+	}
+	return
+}
+
 // A Conn represent connection of the Node
 type Conn struct {
 	*factory.Connection
@@ -31,16 +55,11 @@ type Conn struct {
 	n        *Node         // back reference
 	peerID   cipher.PubKey // peer id
 	features msg.Features  // peer features
+	network  Network       // network
 
 	// request - response
 	seq  uint32                    // messege seq number (for request-response)
 	reqs map[uint32]chan<- msg.Msg // requests
-
-	// # stat
-	//
-	// TODO (kostyarin): stat without mutexes to do not slow down the connection
-	//
-	// ------
 
 	sendq chan<- []byte // channel from factory.Connection
 
@@ -52,6 +71,7 @@ type Conn struct {
 func (n *Node) newConnection(
 	fc *factory.Connection,
 	isIncoming bool,
+	network Network,
 ) (
 	c *Conn,
 ) {
@@ -60,6 +80,7 @@ func (n *Node) newConnection(
 
 	c.Connection = fc
 	c.incoming = isIncoming
+	c.network = network
 
 	c.n = n
 
@@ -121,6 +142,11 @@ func (c *Conn) IsOutgoing() (ok bool) {
 	return c.incoming == false
 }
 
+// Network of the connection (TPC, UDP or WS)
+func (c *Conn) Network() (network Network) {
+	return c.network
+}
+
 // Node returns related Node
 func (c *Conn) Node() (node *Node) {
 	return c.n
@@ -139,7 +165,7 @@ func (c *Conn) Feeds() (feeds []cipher.PubKey) {
 
 }
 
-func connString(isIncoming, isTCP bool, addr string) (s string) {
+func connString(isIncoming, network Network, addr string) (s string) {
 
 	if isIncoming == true {
 		s = "↓ "
@@ -147,21 +173,15 @@ func connString(isIncoming, isTCP bool, addr string) (s string) {
 		s = "↑ "
 	}
 
-	if isTCP == true {
-		s += "tcp://"
-	} else {
-		s += "udp://"
-	}
-
-	return s + addr
+	return s + network.String() + "://" + addr
 }
 
-// String returns string "-> network://remote_address"
-// for example: "-> tcp://127.0.0.1:8887". Where the
-// arrow is "->" for incoming connections and is "<-"
+// String returns string "↑ network://remote_address"
+// for example: "↑ tcp://127.0.0.1:8887". Where the
+// arrow is "↓" for incoming connections and is "↑"
 // for outgoing
 func (c *Conn) String() (s string) {
-	return connString(c.incoming, c.IsTCP(), c.Address())
+	return connString(c.IsIncoming(), c.Network(), c.Address())
 }
 
 //
@@ -183,17 +203,11 @@ func (c *Conn) RemoteFeeds() (feeds []cipher.PubKey, err error) {
 	switch x := reply.(type) {
 
 	case *msg.List:
-
 		feeds = x.Feeds
-
 	case *msg.Err:
-
 		err = errors.New(x.Err)
-
 	default:
-
 		err = fmt.Errorf("invalid response type %T", reply)
-
 	}
 
 	return
@@ -366,7 +380,7 @@ func (c *Conn) getter() (cg skyobject.Getter) {
 // raw reqeusts
 //
 
-// Object request obejct by hash from peer
+// Object request object by hash from peer
 func (c *Conn) Object(key cipher.SHA256) (val []byte, err error) {
 	return (&cget{c}).Get(key)
 }
@@ -376,8 +390,8 @@ var blankRqObejctsLength = len(encoder.Serialize(msg.RqObjects{}))
 
 // Objects request objects by given keys. The request is optimistic.
 // Response never exceed skyobject.Config.MaxObjectSize limit.
-// And remote peer stops on first obejct not found. The remote peer
-// returns error if first object was not found. The request drops
+// And remote peer stops on first object not found. The remote peer
+// returns error if the first object was not found. The request drops
 // last keys if request exceeds the MaxObjectSize limit
 func (c *Conn) Objects(keys ...cipher.SHA256) (vals [][]byte, err error) {
 
