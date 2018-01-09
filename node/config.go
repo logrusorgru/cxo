@@ -2,7 +2,6 @@ package node
 
 import (
 	"crypto/tls"
-	"errors"
 	"flag"
 	"fmt"
 	"time"
@@ -22,19 +21,13 @@ const (
 	MaxFillingTime time.Duration = 10 * time.Minute
 	MaxHeads       int           = 10
 
-	ListenTCP  string = ":8870"
-	ListenUDP  string = ""      // don't listen by default
-	ListenHTTP string = ":8872" // websockets
-
-	WSPath   string = "ws"  // default websockets path
-	HTTPPath string = "cxo" // default http path
+	ListenTCP string = ":8870"
+	ListenUDP string = "" // don't listen by default
 
 	RPCAddress string = ":8873"
 
 	ResponseTimeout time.Duration = 59 * time.Second
 	Features        msg.Features  = msg.CreatedObjects
-
-	Pings time.Duration = 118 * time.Second
 
 	Public bool = false
 )
@@ -229,38 +222,6 @@ func (t *TLSConfig) FromFlags(prefix, forWhat string) {
 
 }
 
-// HTTPConfig represents configurations of
-// a HTTP and websockets networks
-type HTTPConfig struct {
-	// Listen is HTTP listening address. One of
-	// WSPath and HTTPPath fields should not be
-	// empty. Otherwise this config is invalid.
-	// Both fields (WSPath and HTTPPath can contain
-	// a path).
-	Listen string
-
-	// WSPath is path to handle websockets requests.
-	// Use empty string to disable websockets.
-	WSPath string
-	// HTTPPath is path to handle HTTP GET requests
-	// (to get JSON response). Use empty string to
-	// disable this feature.
-	HTTPPath string
-
-	// Pings is time after which a ping message will
-	// be sent through websockets conection if it's idle.
-	// Set to zero to disabel pings
-	Pings time.Duration
-
-	// ResponseTimeout if response timeout for
-	// websockets connections. Set to zero to disable
-	// timeout
-	ResponseTimeout time.Duration
-
-	// TLSConfig contains TLS configurations
-	TLSConfig
-}
-
 // An RPCConfig represents RPC configurations.
 // Set Listen to empty string to disable RPC.
 // Provide own TLS config using TLS field. Provide
@@ -334,10 +295,6 @@ type Config struct {
 
 	// UDP configurations
 	UDP NetConfig
-
-	// HTTP contains configurations of HTTP and websockets
-	// networks.
-	HTTP HTTPConfig
 
 	//
 	// Connection callbacks
@@ -428,12 +385,6 @@ func NewConfig() (c *Config) {
 	c.UDP.Listen = ListenUDP
 	c.UDP.ResponseTimeout = ResponseTimeout
 
-	c.HTTP.Listen = ListenHTTP
-	c.HTTP.WSPath = WSPath
-	c.HTTP.HTTPPath = HTTPPath
-	c.HTTP.ResponseTimeout = ResponseTimeout
-	c.HTTP.Pings = Pings
-
 	c.RPC.Listen = RPCAddress
 	c.Public = Public
 
@@ -502,35 +453,6 @@ func (c *Config) FromFlags() {
 
 	c.UDP.FromFlags("upd", "UDP")
 
-	// websockets
-
-	flag.StringVar(&c.HTTP.Listen,
-		"http",
-		c.HTTP.Listen,
-		"http listening address")
-
-	flag.StringVar(&c.HTTP.WSPath,
-		"ws-path",
-		c.HTTP.WSPath,
-		"path to handle webscoekts requests")
-
-	flag.StringVar(&c.HTTP.HTTPPath,
-		"http-path",
-		c.HTTP.HTTPPath,
-		"path to handle http GET requests")
-
-	flag.DurationVar(&c.HTTP.Pings,
-		"ws-pings",
-		c.HTTP.Pings,
-		"ping idle websockets connections")
-
-	flag.DurationVar(&c.HTTP.ResponseTimeout,
-		"ws-response-timeout",
-		c.HTTP.ResponseTimeout,
-		"response timeout for websockets connections")
-
-	c.HTTP.TLSConfig.FromFlags("ws", "websocket connections")
-
 	// public
 
 	flag.BoolVar(&c.Public,
@@ -557,12 +479,6 @@ func (c *Config) Validate() (err error) {
 		return
 	}
 
-	if c.HTTP.Listen != "" {
-		if c.HTTP.HTTPPath == "" && c.HTTP.WSPath == "" {
-			return errors.New("HTTP configs: missing ws path of HTTP path")
-		}
-	}
-
 	return
 }
 
@@ -574,11 +490,6 @@ func (c *Config) initTLS() (err error) {
 		if err = c.RPC.TLSConfig.Init(); err != nil {
 			return
 		}
-	}
-
-	// should be already validated
-	if c.HTTP.Listen != "" {
-		err = c.HTTP.TLSConfig.Init()
 	}
 
 	return
