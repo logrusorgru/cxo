@@ -29,6 +29,7 @@ const (
 
 	// default CachePolicy is LRU
 
+	MinObjectSize int = 1024             // lower bound of the restriction
 	MaxObjectSize int = 16 * 1024 * 1024 // default is 16M
 
 	// filling
@@ -292,7 +293,7 @@ func (c *Config) Validate() error {
 			c.CacheMaxItemSize, cacheMaxItemSize)
 	}
 
-	if c.MaxObjectSize < 1024 {
+	if c.MaxObjectSize < MinObjectSize {
 		return fmt.Errorf("skyobject.Config.MAxObjectSize is too small: %d",
 			c.MaxObjectSize)
 	}
