@@ -11,12 +11,16 @@ import (
 )
 
 // protocol
+// --------
+//
+// the protocol describes internal node-to-node protocol
 //
 // [1 byte] - type
 // [ .... ] - encoded message ([]byte)
 //
-
+//
 // types
+// -----
 //
 // # handshake messages
 //
@@ -55,20 +59,6 @@ import (
 // # preview (request root)
 //
 // 14. RqPreview   -> RqPreview (feed)
-//
-// (messages above used between nodes, messeges below are for end-users)
-//
-// # request object with schema name (binary)
-//
-// 15. RqSchemaObject <- RqSO (feed, subtree, hash... (path))
-// 16. SchemaObject   -> SO (schema name, val)
-//
-// # JSON
-//
-// 17. RqJSON        <- RqJSON (feed, subtree, hash... (path))
-// 18. JSON          -> {"schema": "name", "value": {...}, "err": ""}
-//
-// # change (TODO: add Root, add object, replace object, delete object)
 //
 
 // Version is current protocol version
@@ -187,6 +177,7 @@ var (
 	// preview
 
 	_ Msg = &RqPreview{} // -> RqPreview (feed)
+
 )
 
 //

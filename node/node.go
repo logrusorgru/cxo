@@ -1,11 +1,8 @@
 package node
 
 import (
-	"net/http"
 	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/skycoin/skycoin/src/cipher"
 
@@ -53,7 +50,6 @@ type Node struct {
 	// listen and connect
 	tcp *TCP
 	udp *UDP
-	ws  *WS // including HTTP
 
 	//
 	// other
@@ -169,17 +165,6 @@ func NewNodeContainer(
 	if conf.UDP.Listen != "" {
 		if err = n.UDP().Listen(conf.UDP.Listen); err != nil {
 			n.Close()
-			return
-		}
-	}
-
-	// http + ws
-
-	if conf.HTTP.Listen != "" {
-		err = n.WS().Listen(conf.HTTP.Listen, conf.HTTP.WSPath,
-			conf.HTTP.HTTPPath)
-
-		if err != nil {
 			return
 		}
 	}
@@ -307,77 +292,6 @@ func (n *Node) UDP() (tcp *UDP) {
 	return n.udp
 }
 
-func (n *Node) getWS() (w *WS) {
-	n.mx.Lock()
-	defer n.mx.Unlock()
-
-	return n.ws // including HTTP
-}
-
-// WS returns websockets transport of the Node
-func (n *Node) WS() (ws *WS) {
-
-	n.mx.Lock()
-	defer n.mx.Unlock()
-
-	n.createWS()
-
-	return n.ws
-}
-
-var websocketUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin: func(*http.Request) bool {
-		return true // allow all
-	},
-}
-
-// WebsocketsHandler can be used to handle HTTP requests and
-// upgrade tehm to websockets. If you are planing to use websockets
-// but want own HTTP-server with own path use this HandlerFunc
-func (n *Node) WebsocketsHandler(w http.ResponseWriter, r *http.Request) {
-
-	var wc, err = websocketUpgrader.Upgrade(w, r, nil)
-
-	if err != nil {
-		n.Print("[ERR] websockets handling error:", err)
-		return
-	}
-
-	defer wc.Close()
-
-	// TOOD
-
-	/*
-
-
-		func echo() {
-			c, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				log.Print("upgrade:", err)
-				return
-			}
-			defer c.Close()
-			for {
-				mt, message, err := c.ReadMessage()
-				if err != nil {
-					log.Println("read:", err)
-					break
-				}
-				log.Printf("recv: %s", message)
-				err = c.WriteMessage(mt, message)
-				if err != nil {
-					log.Println("write:", err)
-					break
-				}
-			}
-		}
-
-	*/
-
-}
-
 // add to pending
 func (n *Node) addPendingConn(c *Conn) {
 	n.mx.Lock()
@@ -430,17 +344,6 @@ func (n *Node) createUDP() {
 	}
 
 	n.udp = newUDP(n)
-
-}
-
-// call under lock of the mx
-func (n *Node) createWS() {
-
-	if n.ws != nil {
-		return // alrady created
-	}
-
-	n.ws = newWS(n)
 
 }
 

@@ -19,30 +19,6 @@ import (
 	"github.com/skycoin/cxo/skyobject/registry"
 )
 
-// A Network represents conenction type
-type Network int
-
-// connection types
-const (
-	NetworkTCP Network = iota // tcp
-	NetworkUDP                // upd
-	NetworkWS                 // websockets
-)
-
-func (n Network) String() (typ string) {
-	switch n {
-	case NetworkTCP:
-		typ = "tcp"
-	case NetworkUDP:
-		typ = "udp"
-	case NetworkWS:
-		typ = "ws"
-	default:
-		typ = fmt.Sprintf("Network<%d>", n)
-	}
-	return
-}
-
 // A Conn represent connection of the Node
 type Conn struct {
 	*factory.Connection
@@ -55,7 +31,6 @@ type Conn struct {
 	n        *Node         // back reference
 	peerID   cipher.PubKey // peer id
 	features msg.Features  // peer features
-	network  Network       // network
 
 	// request - response
 	seq  uint32                    // messege seq number (for request-response)
@@ -71,7 +46,6 @@ type Conn struct {
 func (n *Node) newConnection(
 	fc *factory.Connection,
 	isIncoming bool,
-	network Network,
 ) (
 	c *Conn,
 ) {
@@ -80,7 +54,6 @@ func (n *Node) newConnection(
 
 	c.Connection = fc
 	c.incoming = isIncoming
-	c.network = network
 
 	c.n = n
 
@@ -142,11 +115,6 @@ func (c *Conn) IsOutgoing() (ok bool) {
 	return c.incoming == false
 }
 
-// Network of the connection (TPC, UDP or WS)
-func (c *Conn) Network() (network Network) {
-	return c.network
-}
-
 // Node returns related Node
 func (c *Conn) Node() (node *Node) {
 	return c.n
@@ -165,7 +133,7 @@ func (c *Conn) Feeds() (feeds []cipher.PubKey) {
 
 }
 
-func connString(isIncoming, network Network, addr string) (s string) {
+func connString(isIncoming, isTCP bool, addr string) (s string) {
 
 	if isIncoming == true {
 		s = "↓ "
@@ -173,7 +141,13 @@ func connString(isIncoming, network Network, addr string) (s string) {
 		s = "↑ "
 	}
 
-	return s + network.String() + "://" + addr
+	if isTCP == true {
+		s += "tcp"
+	} else {
+		s += "udp"
+	}
+
+	return s + "://" + addr
 }
 
 // String returns string "↑ network://remote_address"
@@ -181,7 +155,7 @@ func connString(isIncoming, network Network, addr string) (s string) {
 // arrow is "↓" for incoming connections and is "↑"
 // for outgoing
 func (c *Conn) String() (s string) {
-	return connString(c.IsIncoming(), c.Network(), c.Address())
+	return connString(c.IsIncoming(), c.IsTCP(), c.Address())
 }
 
 //

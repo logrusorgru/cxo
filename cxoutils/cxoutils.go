@@ -116,5 +116,3 @@ func RemoveObjects(c *skyobject.Container, timeout time.Duration) (err error) {
 
 	return
 }
-
-// TODO (kostyarin): RemoveObjects with "down to" or "timeout" feature
