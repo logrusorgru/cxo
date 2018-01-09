@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/skycoin/skycoin/src/cipher"
+	"github.com/skycoin/skycoin/src/cipher/encoder"
 
 	"github.com/skycoin/cxo/skyobject/registry"
 )
@@ -75,7 +76,7 @@ func (c *Container) Split(
 	refs.Clear() // clear the Refs first
 
 	var (
-		buf = make([]byte, c.conf.MaxObjectSize)
+		buf = make([]byte, c.conf.MaxObjectSize-4) // encoded length
 		n   int
 
 		key cipher.SHA256
@@ -88,7 +89,7 @@ func (c *Container) Split(
 	for err == nil {
 
 		// save the piece
-		if key, err = pack.Add(buf); err != nil {
+		if key, err = pack.Add(encoder.Serialize(buf)); err != nil {
 			return
 		}
 
@@ -118,7 +119,7 @@ func (c *Container) Split(
 		}
 
 		// save the last piece
-		if key, err = pack.Add(buf[:n]); err != nil {
+		if key, err = pack.Add(encoder.Serialize(buf[:n])); err != nil {
 			return
 		}
 
@@ -177,12 +178,19 @@ func (c *Container) Concat(
 	err error,
 ) {
 
+	var wrap struct {
+		Data []byte
+	}
+
 	err = refs.Ascend(pack, func(_ int, key cipher.SHA256) (err error) {
 		var val []byte
 		if val, err = pack.Get(key); err != nil {
 			return // pass through
 		}
-		_, err = w.Write(val)
+		if err = encoder.DeserializeRaw(val, &wrap); err != nil {
+			return
+		}
+		_, err = w.Write(wrap.Data)
 		return // pass the err through and stop the Ascend if the err is not nil
 	})
 

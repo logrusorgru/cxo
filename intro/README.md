@@ -9,6 +9,7 @@ The `intro` folder contains examples.
 - [`send_receive/`](./send_receive) - about source and destination, and how to
   decode values back to golang-values
 - [`skybrief/`](./skybrief) - briefly about skyobject
+- [`split/`](./split) - split a big file to Merkle-tree and join back
 
 The `types.go` file implements basic types for these
 examples. And the file also implements registry of

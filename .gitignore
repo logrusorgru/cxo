@@ -44,6 +44,8 @@ cmd/cxocli/cxocli
 cmd/cxod/cxod
 
 intro/skybrief/skybrief
+intro/split/split
+intro/split/*-from-cxo.png
 
 intro/discovery/through/server/server
 intro/discovery/through/ca/ca
