@@ -44,7 +44,7 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 
 - [telegram group](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
 
-#### Modules
+#### Packages
 
 - `cmd` - apps
   - `cxocli` - CLI is admin RPC based tool to control any CXO-node
@@ -57,7 +57,7 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
   - `data/tests` - tests for the `data` interfaces
 - `node` - TCP transport for CXO
   - `node/log` - logger
-  - `node/msg` - protocol messages
+  - `node/msg` - internal node-to-node protocol
 - `skyobject` - CXO core: encode/decode, etc
   - `registry` - schemas, types, etc,
 

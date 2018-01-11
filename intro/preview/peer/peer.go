@@ -29,8 +29,8 @@ func main() {
 
 	var c = node.NewConfig()
 
-	c.RPC = RPC       // enable RPC
-	c.TCP.Listen = "" // don't listen
+	c.RPC.Listen = RPC // enable RPC
+	c.TCP.Listen = ""  // don't listen
 
 	// not public
 
@@ -111,16 +111,14 @@ func main() {
 func preview(conn *node.Conn, pk cipher.PubKey) {
 
 	var err = conn.Preview(pk,
-		func(pack registry.Pack, r *registry.Root) (subscribe bool) {
+		func(pack registry.Pack, r *registry.Root) (err error) {
 
-			var tree, err = r.Tree(pack)
-
-			if err != nil {
-				log.Fatal(err)
+			var tree string
+			if tree, err = r.Tree(pack); err != nil {
+				return
 			}
 
 			fmt.Println(tree)
-
 			return // never subscribe
 		})
 

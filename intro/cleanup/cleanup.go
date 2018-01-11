@@ -44,7 +44,7 @@ func main() {
 
 	var c = node.NewConfig()
 
-	c.RPC = ""        // disable RPC
+	c.RPC.Listen = "" // disable RPC
 	c.TCP.Listen = "" // don't listen
 
 	// not public

@@ -49,7 +49,7 @@ func main() {
 
 	var c = node.NewConfig()
 
-	c.RPC = RPC // enable RPC
+	c.RPC.Listen = RPC // enable RPC
 
 	c.TCP.Listen = "" // don't listen
 	c.TCP.Discovery = node.Addresses{Discovery}

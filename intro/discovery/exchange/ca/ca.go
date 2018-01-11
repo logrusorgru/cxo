@@ -50,7 +50,7 @@ func main() {
 
 	var c = node.NewConfig()
 
-	c.RPC = RPC // enable RPC
+	c.RPC.Listen = RPC // enable RPC
 
 	c.TCP.Listen = Bind // listen
 	c.TCP.Discovery = node.Addresses{Discovery}

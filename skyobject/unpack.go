@@ -23,12 +23,17 @@ type Unpack struct {
 	c     *Container                    // Set method
 	*Pack                               // other methods
 	sk    cipher.SecKey                 // owner
+
+	// the created filed used if some features of node-to-node
+	// prtocol enabled, such as created_hashes or crated_objects
+	created []cipher.SHA256 // list of hashes of created object
 }
 
 func (u *Unpack) reset() {
 	for _, ui := range u.m {
 		ui.dec = 0
 	}
+	u.created = u.created[:0]
 }
 
 // Set value
@@ -63,7 +68,7 @@ func (u *Unpack) Add(val []byte) (key cipher.SHA256, err error) {
 
 // Unpack creates Unpack using given registry. Use
 // the Unapck to modify a Root object and to save
-// cahnges after.
+// changes after.
 func (c *Container) Unpack(
 	sk cipher.SecKey,
 	reg *registry.Registry,
@@ -94,12 +99,21 @@ func (c *Container) Unpack(
 
 }
 
-// Save cahnges of given Root updating seq number and
+// Created used by node.Node.Publish if some
+// protocol features enabled
+func (u *Unpack) Created() []cipher.SHA256 {
+	return u.created
+}
+
+// Save changes of given Root updating seq number and
 // timestamp of the Root. The Root should have correct
 // Pub, and Nonce fields. The Seq field will be set
 // to next inside the Save. The Save also set Hash and
 // Prev fields of the Root, and signs the Root
 func (c *Container) Save(up *Unpack, r *registry.Root) (err error) {
+
+	// clear the created field
+	up.created = up.created[:0]
 
 	// save the Root recursive
 
@@ -165,6 +179,11 @@ func (c *Container) Save(up *Unpack, r *registry.Root) (err error) {
 
 				return // false, nil
 			}
+
+			// the object was created, this way the
+			// up.created will keep hashes of all created
+			// objects starting from Root
+			up.created = append(up.created, hash)
 
 			// here we reduce the ui.inc; if end-user saves an
 			// object many times (or the object saved by Refs

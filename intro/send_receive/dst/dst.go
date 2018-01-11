@@ -41,7 +41,7 @@ func main() {
 		r = new(receiver) // show received objects
 	)
 
-	c.RPC = RPC // enable RPC
+	c.RPC.Listen = RPC // enable RPC
 
 	c.TCP.Listen = "" // don't listen
 
