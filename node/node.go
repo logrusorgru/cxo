@@ -69,7 +69,7 @@ type Node struct {
 	// rpc
 	//
 
-	rpc *rpcServer
+	rpc *RPCServer
 
 	//
 	//  closing
@@ -214,6 +214,13 @@ func (n *Node) Config() (conf *Config) {
 // Container returns related Container instance
 func (n *Node) Container() (c *skyobject.Container) {
 	return n.c
+}
+
+// RPC returns related RPCServer or nil
+// if RPC disabled by Cofnig. The RPCServer
+// can be used to add own RPC handler
+func (n *Node) RPC() (r *RPCServer) {
+	return n.rpc
 }
 
 // Publish sends given Root object to peers that

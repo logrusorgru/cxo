@@ -11,22 +11,42 @@ import (
 	"github.com/skycoin/cxo/skyobject/registry"
 )
 
-// wrap the RPC
-type rpcServer struct {
+// An RPCServer represents RPC administration
+// server for the Node. It has built-in handlers
+// called
+//
+//     - node
+//     - tcp
+//     - udp
+//     - root
+//
+// It's possible to add own handler using RegisterName method.
+// The RPCServer based on net/rpc package and runs over TCP
+// (with optional TLS). Thus the RegisterName method equal to
+// (net/rpc.Server).RegisterName (see
+// https://godoc.org/net/rpc#Server.RegisterName for details).
+type RPCServer struct {
 	l net.Listener // underlying listener
 	r *rpc.Server  //
 	n *Node        // back reference
 }
 
 // create RPC server
-func (n *Node) newRPC() (r *rpcServer) {
-	r = new(rpcServer)
+func (n *Node) newRPC() (r *RPCServer) {
+	r = new(RPCServer)
 	r.n = n
 	r.r = rpc.NewServer()
 	return
 }
 
-func (r *rpcServer) Listen(conf *RPCConfig) (err error) {
+// RegisterName allows to add own handler. See
+// https://godoc.org/net/rpc#Server.RegisterName
+// for details
+func (r *RPCServer) RegisterName(name string, rcvr interface{}) (err error) {
+	return r.r.RegisterName(name, rcvr)
+}
+
+func (r *RPCServer) Listen(conf *RPCConfig) (err error) {
 
 	r.r.RegisterName("node", &RPC{r.n})
 
@@ -51,19 +71,19 @@ func (r *rpcServer) Listen(conf *RPCConfig) (err error) {
 	return
 }
 
-func (r *rpcServer) run() {
+func (r *RPCServer) run() {
 	defer r.n.await.Done()
 	r.r.Accept(r.l)
 }
 
-func (r *rpcServer) Address() (address string) {
+func (r *RPCServer) Address() (address string) {
 	if r.l != nil {
 		address = r.l.Addr().String()
 	}
 	return
 }
 
-func (r *rpcServer) Close() (err error) {
+func (r *RPCServer) Close() (err error) {
 	if r.l != nil {
 		err = r.l.Close()
 	}
