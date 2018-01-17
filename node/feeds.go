@@ -12,6 +12,16 @@ import (
 type connRoot struct {
 	c *Conn
 	r *registry.Root
+
+	// feature depended
+	ch []cipher.SHA256
+	co [][]byte
+}
+
+// isBlank returns true if the connRoot has no
+// connection and Root (ignoring ch and co fields)
+func (c *connRoot) isBlank() bool {
+	return c.c == nil && c.r == nil
 }
 
 // connection and feed
@@ -406,10 +416,15 @@ func (n *nodeFeeds) handleDelConn(c *Conn) {
 }
 
 // (api)
-func (n *nodeFeeds) receivedRoot(c *Conn, r *registry.Root) {
+func (n *nodeFeeds) receivedRoot(
+	c *Conn, //
+	r *registry.Root, //
+	ch []cipher.SHA256, //
+	co [][]byte, //
+) {
 
 	select {
-	case n.rrq <- connRoot{c, r}:
+	case n.rrq <- connRoot{c, r, ch, co}:
 	case <-n.closeq:
 	}
 

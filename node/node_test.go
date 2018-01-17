@@ -274,7 +274,9 @@ func TestNode_Publish(t *testing.T) {
 
 	// publish
 
-	ln.Publish(r)
+	if err = ln.Publish(r, up); err != nil {
+		t.Fatal(err)
+	}
 
 	// check out channels
 

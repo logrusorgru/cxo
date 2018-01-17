@@ -111,7 +111,7 @@ func (n *nodeFeed) broadcastRoot(cr connRoot) {
 			continue
 		}
 
-		c.sendRoot(cr.r)
+		c.sendRoot(cr.r, cr.ch, cr.co)
 	}
 
 }

@@ -406,7 +406,7 @@ func (f *fillHead) handleFillingResult(err error) {
 
 	// no
 
-	if f.p == (connRoot{}) {
+	if f.p.isBlank() == true {
 		return
 	}
 

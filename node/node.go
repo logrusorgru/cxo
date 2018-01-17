@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/skycoin/skycoin/src/cipher"
+	"github.com/skycoin/skycoin/src/cipher/encoder"
 
 	"github.com/skycoin/net/factory"
 	discovery "github.com/skycoin/net/skycoin-messenger/factory"
@@ -230,9 +231,73 @@ func (n *Node) RPC() (r *RPCServer) {
 // the Node knows nothing about new Root objects.
 // And to share an updated Root, call the Publish.
 // And don't call the publish for Root objects that
-// alredy saved (that saved before subscription)
-func (n *Node) Publish(r *registry.Root) {
-	n.fs.broadcastRoot(connRoot{nil, r})
+// alredy saved (that saved before subscription).
+//
+// The Unpack argument can be nil. It used if some
+// prtocol features enabled. but it can be nil even
+// if this features enabled (but the features will
+// not work in this case).
+func (n *Node) Publish(r *registry.Root, up *skyobject.Unpack) (err error) {
+
+	var (
+		createdHashes  []cipher.SHA256
+		createdObjects [][]byte
+	)
+
+	// use performance features
+	if up != nil && n.features&(msg.CreatedHashes|msg.CreatedObjects) != 0 {
+
+		// size limit
+
+		// TOOD (kostyarin): use r.Encode and constant value
+		//                   to speed up finding of the rootSize
+		var rootSize = len(encoder.Serialize(&msg.Root{
+			Feed:  r.Pub,
+			Nonce: r.Nonce,
+			Seq:   r.Seq,
+			Value: r.Encode(), // variable
+			Sig:   r.Sig,
+		}))
+
+		// free space to place created hashes or creatd objects
+		var free = n.c.Config().MaxObjectSize - rootSize
+
+		if n.features&msg.CreatedHashes != 0 {
+
+			createdHashes = up.Created()
+
+			if len(cipher.SHA256{})*len(createdHashes) > free {
+				// we have to reduce length of the createdHashes
+
+				var max = free / len(cipher.SHA256{})
+				createdHashes = createdHashes[:max]
+			}
+
+		} else if n.features&msg.CreatedObjects != 0 {
+
+			var val []byte
+
+			for _, hash := range up.Created() {
+
+				if val, _, err = n.c.Get(hash, 0); err != nil {
+					return // fatal (panic?)
+				}
+
+				if len(val) > free {
+					break
+				}
+
+				free -= len(val)
+				createdObjects = append(createdObjects, val)
+
+			}
+
+		}
+
+	}
+
+	n.fs.broadcastRoot(connRoot{nil, r, createdHashes, createdObjects})
+	return
 }
 
 // ConnectionsOfFeed returns list of connections of given

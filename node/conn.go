@@ -187,7 +187,7 @@ func (c *Conn) RemoteFeeds() (feeds []cipher.PubKey, err error) {
 	return
 }
 
-func (c *Conn) sendRoot(r *registry.Root) {
+func (c *Conn) sendRoot(r *registry.Root, ch []cipher.SHA256, co [][]byte) {
 	c.sendMsg(c.nextSeq(), 0, &msg.Root{
 		Feed:  r.Pub,
 		Nonce: r.Nonce,
@@ -196,6 +196,9 @@ func (c *Conn) sendRoot(r *registry.Root) {
 		Value: r.Encode(),
 
 		Sig: r.Sig,
+
+		CreatedHashes:  ch,
+		CreatedObjects: co,
 	})
 }
 
@@ -208,7 +211,7 @@ func (c *Conn) sendLastRoot(pk cipher.PubKey) {
 	)
 
 	if err == nil {
-		c.sendRoot(r)
+		c.sendRoot(r, nil, nil) // ignore features
 		return
 	}
 
@@ -811,7 +814,7 @@ func (c *Conn) handleRoot(root *msg.Root) (_ error) {
 
 	// fill the Root only if the node and the connection
 	// subscribed to feed of the Root
-	c.n.fs.receivedRoot(c, r)
+	c.n.fs.receivedRoot(c, r, root.CreatedHashes, root.CreatedObjects)
 	return
 }
 
