@@ -278,6 +278,17 @@ func (f *fillHead) handleReceivedRoot(cr connRoot) {
 		f.cs.addKnown(cr.c, cr.r.Seq) // add to known
 
 		if cr.r.Seq == f.r.r.Seq {
+
+			if cr.r.Hash != cr.r.Hash {
+
+				f.node().Debugf(FillPin, "[fill] handleReceivedRoot:"+
+					"the same seq, but another hash %s != %s",
+					f.r.r.Hash.Hex()[:7],
+					cr.r.Hash.Hex()[:7])
+
+				return // the same seq, but another hash (drop)
+			}
+
 			f.fc.PushBack(cr.c) // add to filling connections
 			f.triggerRequest()
 			return
