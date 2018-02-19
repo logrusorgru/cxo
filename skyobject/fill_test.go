@@ -143,7 +143,7 @@ func testFillRoot(t *testing.T, sc, rc *Container, r *registry.Root) {
 
 	var (
 		rq = make(chan cipher.SHA256, 10)
-		f  = rc.Fill(r, rq, 10)
+		f  = rc.Fill(r, rq, nil, nil, 10)
 	)
 
 	var wg sync.WaitGroup
@@ -169,7 +169,7 @@ func testFillRoot(t *testing.T, sc, rc *Container, r *registry.Root) {
 
 	}()
 
-	assertNil(t, f.Run())
+	assertNil(t, f.Run(nil, nil))
 
 	close(rq)
 	wg.Wait()

@@ -17,11 +17,14 @@ type Filler struct {
 
 	reg *registry.Registry
 
-	rq chan<- cipher.SHA256
+	rq  chan<- cipher.SHA256   // request object using stabdart approach
+	rqs chan<- []cipher.SHA256 // request objects if some features enabled
+	rps <-chan [][]byte        // response for the rqs
 
-	mx   sync.Mutex
-	incs map[cipher.SHA256]int
-	pre  map[cipher.SHA256]struct{} // prerequested by RC
+	mx    sync.Mutex
+	incs  map[cipher.SHA256]int
+	pincs map[cipher.SHA256]int      // features pre incs
+	pre   map[cipher.SHA256]struct{} // prerequested by RC
 
 	limit chan struct{} // max
 
@@ -74,8 +77,8 @@ func (f *Filler) get(
 	defer f.c.Unwant(key, gc) // to be memory safe
 
 	// requset the object using the rq channel
-	if f.requset(key) == false {
-		return
+	if err = f.requset(key); err != nil {
+		return // ErrTerminated
 	}
 
 	select {
@@ -120,7 +123,7 @@ func (f *Filler) isPrerequested(key cipher.SHA256) (ok bool) {
 	return
 }
 
-// Get object from DB or request it usung provided
+// Get object from DB or request it using provided
 // channel. The Get increments references counter
 // of value
 func (f *Filler) Get(key cipher.SHA256) (val []byte, rc int, err error) {
@@ -168,13 +171,35 @@ func (f *Filler) inc(key cipher.SHA256, drc int) (rc int) {
 	return
 }
 
-func (f *Filler) requset(key cipher.SHA256) (ok bool) {
+// pinc is inc for features, e.g. we don't know will an
+// object used or not; thus we have to track it
+func (f *Filler) pinc(key cipher.SHA256) {
+	f.mx.Lock()
+	defer f.mx.Unlock()
+
+	f.pincs[key]++
+	return
+}
+
+func (f *Filler) requset(key cipher.SHA256) (err error) {
 
 	select {
 	case f.rq <- key:
-		ok = true
 	case <-f.closeq:
+		err = ErrTerminated
 	}
+	return
+}
+
+func (f *Filler) requsetObjects(ch []cipher.SHA256) (co [][]byte, err error) {
+
+	select {
+	case f.rqs <- ch:
+		co = <-f.rps // must read
+	case <-f.closeq:
+		return nil, ErrTerminated
+	}
+
 	return
 }
 
@@ -191,13 +216,19 @@ func (f *Filler) Close() {
 // Root object. To request objects, the DB doesn't
 // have, given rq channel used. The Fill used by
 // the node package to fill Root objects. The filler
-// must be closed after using
+// must be closed after using. The rqs channel is
+// useful only if this node and at least one of its
+// peers supporst created_hashes feature (see
+// node/msg.Features for details). The same for the
+// rps channel, that used only if the rqs is not nil
 func (c *Container) Fill(
-	r *registry.Root, //        : the Root to fill
-	rq chan<- cipher.SHA256, // : request object from peers
-	maxParall int, //           : max subtrees processing at the same time
+	r *registry.Root, //           : the Root to fill
+	rq chan<- cipher.SHA256, //    : request object from peers
+	rqs chan<- []cipher.SHA256, // : request objects from single peer
+	rps <-chan [][]byte, //        : response for the rqs
+	maxParall int, //              : max subtrees processing at the same time
 ) (
-	f *Filler, //               : the Filler
+	f *Filler, //                  : the Filler
 ) {
 
 	f = new(Filler)
@@ -206,6 +237,15 @@ func (c *Container) Fill(
 	f.r = r
 
 	f.rq = rq
+
+	// only if this node supports this features
+	if rqs != nil {
+		f.rqs = rqs // keep the channels to use them later
+		f.rps = rps //
+
+		f.pincs = make(map[cipher.SHA256]int) // track ceated obejcts
+	}
+
 	f.incs = make(map[cipher.SHA256]int)
 	f.pre = make(map[cipher.SHA256]struct{})
 
@@ -220,19 +260,46 @@ func (c *Container) Fill(
 }
 
 func (f *Filler) apply() {
+
 	for key, inc := range f.incs {
 		if err := f.c.Finc(key, inc); err != nil {
 			panic("DB failure: " + err.Error()) // TODO: handle the error
 		}
 	}
+
+	f.unusedPincs()
 }
 
 func (f *Filler) reject() {
+
 	for key, inc := range f.incs {
 		if err := f.c.Finc(key, -inc); err != nil {
-			panic("DB failure: " + err.Error()) // TODO: handle the error
+			fatal("DB failure:", err.Error()) // TODO: handle the error
 		}
 	}
+
+	f.unusedPincs()
+}
+
+// remove unused pincs
+func (f *Filler) unusedPincs() {
+
+	for key, pinc := range f.pincs {
+
+		var diff = f.incs[key] - pinc
+
+		if diff >= 0 {
+			continue // everything is ok
+		}
+
+		// reduce inc in DB by the
+		// diff to make the DB actual
+		if err := f.c.Finc(key, diff); err != nil {
+			fatal("DB failure:", err.Error()) // TODO: handle the error
+		}
+
+	}
+
 }
 
 func (f *Filler) acquire() (parall bool) {
@@ -276,9 +343,54 @@ func (f *Filler) Go(fn func()) {
 
 }
 
-// Run the Filler. The Run method blocks
-// until finish or first error
-func (f *Filler) Run() (err error) {
+// process features like created objects
+// and created hashes
+func (f *Filler) features(co [][]byte, ch []cipher.SHA256) (err error) {
+
+	if f.rqs == nil {
+		return // this node doesn't support this features
+	}
+
+	// co and ch
+
+	// So, we can't just save the objects since we don't
+	// trust to remote peers and the co and ch are not parts
+	// of signed Root obejcts. Thus, we have to check the inc
+	// of all this objects and reject objects that are not
+	// really used
+
+	if ch != nil {
+		if co, err = f.requsetObjects(ch); err != nil {
+			return
+		}
+	}
+
+	if co != nil {
+
+		// save objects
+		for _, val := range co {
+			var key = cipher.SumSHA256(val)
+			f.pinc(key)
+
+			if _, err = f.c.Set(key, val, 1); err != nil {
+				// if the err is not nil, then the Run method
+				// rejects all pincs
+				return
+			}
+		}
+
+	}
+
+	return
+}
+
+// Run the Filler. The Run method blocks until finish or first error.
+// The Run uses provided co (created objects) or ch (created hashes)
+// if they are not nil. If co is not nil, then ch ignored. The created
+// objects are list of objects that has been created with this version
+// of the Root of the Filler (and the same for  created hashes). The
+// co and ch are optional performance features of filling
+func (f *Filler) Run(co [][]byte, ch []cipher.SHA256) (err error) {
 
 	// save Root
 
@@ -296,6 +408,10 @@ func (f *Filler) Run() (err error) {
 			f.apply()
 		}
 	}()
+
+	if err = f.features(co, ch); err != nil {
+		return
+	}
 
 	if err = f.getRegistry(); err != nil {
 		return

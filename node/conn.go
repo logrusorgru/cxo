@@ -412,7 +412,7 @@ func (c *Conn) Objects(keys ...cipher.SHA256) (vals [][]byte, err error) {
 
 		vals = x.Values
 	case *msg.Err:
-		return nil, errors.New("error: " + x.Err)
+		return nil, errors.New(x.Err)
 	default:
 		return nil, fmt.Errorf("invalid msg type received: %T", reply)
 	}
@@ -660,11 +660,16 @@ func (c *Conn) handle(seq uint32, m msg.Msg) (err error) {
 	case *msg.Root: // <- Root (feed, nonce, seq, sig, val)
 		return c.handleRoot(x)
 
-	// objects
+	// object
 
-	case *msg.RqObject: // <- RqO (key, prefetch)
+	case *msg.RqObject: // <- RqO (key)
 		c.await.Add(1)
 		go c.handleRqObject(seq, x)
+		return
+
+	case *msg.RqObjects: // <- RqOs (keys)
+		c.await.Add(1)
+		go c.handleRqObjects(seq, x)
 		return
 
 	// preview
@@ -864,11 +869,67 @@ func (c *Conn) handleRqObject(seq uint32, rq *msg.RqObject) {
 	case obj := <-gc:
 		c.sendMsg(c.nextSeq(), seq, &msg.Object{Value: obj.Val})
 	case <-tc:
-		c.sendMsg(c.nextSeq(), seq, &msg.Err{}) // timeout
+		c.sendMsg(c.nextSeq(), seq, &msg.Err{Err: ErrTimeout.Error()})
 	case <-c.closeq:
 		// closed
 	}
 
+	return
+}
+
+// async
+func (c *Conn) handleRqObjects(seq uint32, rq *msg.RqObjects) {
+	defer c.await.Done()
+
+	c.n.Debugf(MsgReceivePin, "[%s] handleRqObjects %d", c.String(),
+		len(rq.Keys))
+
+	var (
+		gc = make(chan skyobject.Object, len(rq.Keys)) // buffered
+
+		tm *time.Timer
+		tc <-chan time.Time
+	)
+
+	// TODO (kostyarin): the request holds resources and in good case
+	//                   it's ok, but it's possible to DDoS the Node
+	//                   perfoкming many trash request
+
+	// TODO (kostyarin): get the object or subscribe for the object
+	//                   only if it is wanted (to think)
+
+	for _, key := range rq.Keys {
+		if err := c.n.c.Want(key, gc, 0); err != nil {
+			c.n.Fatal("DB failure: ", err)
+		}
+		defer c.n.c.Unwant(key, gc) // to be memory safe
+	}
+
+	var objs = make([][]byte, 0, len(rq.Keys))
+
+	if rt := c.responseTimeout(); rt > 0 {
+		tm = time.NewTimer(rt)
+		tc = tm.C
+
+		defer tm.Stop()
+	}
+
+	for i := len(rq.Keys); i > 0; i-- {
+		select {
+		case obj := <-gc:
+			if obj.Err != nil {
+				continue // just skip it
+			}
+			objs = append(objs, obj.Val)
+		case <-tc:
+			c.sendMsg(c.nextSeq(), seq, &msg.Err{Err: ErrTimeout.Error()})
+		case <-c.closeq:
+			// closed
+		}
+	}
+
+	// send result
+	c.sendMsg(c.nextSeq(), seq, &msg.Objects{Values: objs})
 	return
 }
 

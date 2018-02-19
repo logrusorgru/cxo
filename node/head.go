@@ -2,6 +2,7 @@ package node
 
 import (
 	"container/list"
+	"errors"
 	"sync"
 	"time"
 
@@ -108,6 +109,11 @@ type fillHead struct {
 	rq chan cipher.SHA256 // request objects (TODO: maxParall)
 	ff chan error         // filler failure
 
+	// request many objects by single request and
+	// response for the request (optional features)
+	rqs chan []cipher.SHA256
+	rps chan [][]byte
+
 	ft *time.Timer      // fill timeout
 	tc <-chan time.Time // ------------
 
@@ -150,12 +156,21 @@ func (n *nodeHead) handle() {
 			failureq: make(chan failedRequest), // failed requests
 		}
 
-		key cipher.SHA256
-		c   *Conn
-		cr  connRoot
-		fc  failedRequest
-		err error // fillign failure or nil
+		key  cipher.SHA256
+		keys []cipher.SHA256
+		c    *Conn
+		cr   connRoot
+		fc   failedRequest
+		err  error // fillign failure or nil
 	)
+
+	// create and use f.rqs and f.rps only if 'created hashes'
+	// feature enabled  and used by this node
+
+	if n.node().features&msg.CreatedHashes != 0 {
+		f.rqs = make(chan []cipher.SHA256) // not buffered
+		f.rps = make(chan [][]byte)        // not buffered
+	}
 
 	for {
 		select {
@@ -188,6 +203,10 @@ func (n *nodeHead) handle() {
 			if f.f != nil {
 				f.f.Fail(ErrTimeout)
 			}
+
+		case keys = <-f.rqs:
+
+			f.handleRequests(keys)
 
 		// api info
 
@@ -353,28 +372,43 @@ func (f *fillHead) createFiller(cr connRoot) {
 
 	f.tp = time.Now() // time point
 
+	// limit filing time (or not limit)
 	if ft := f.node().config.MaxFillingTime; ft > 0 {
 		f.ft = time.NewTimer(ft)
 		f.tc = f.ft.C
 	}
 
+	// current filling
 	f.r = cr
 	f.rq = make(chan cipher.SHA256, f.maxParallel())
-	f.f = f.node().c.Fill(cr.r, f.rq, f.maxParallel())
+	f.f = f.node().c.Fill(cr.r, f.rq, f.rqs, f.rps, f.maxParallel())
 
 	f.rqo = list.New()                   // create list of keys
 	f.fc = f.cs.buildConnsList(cr.r.Seq) // create list of connections
 
 	f.await.Add(1)
-	go f.runFiller(f.f)
+	go f.runFiller(f.f, cr.co, cr.ch)
 }
 
 // (async)
-func (f *fillHead) runFiller(fill *skyobject.Filler) {
+func (f *fillHead) runFiller(
+	fill *skyobject.Filler, // :
+	co [][]byte, //            :
+	ch []cipher.SHA256, //     :
+) {
+
 	defer f.await.Done()
 
+	// created objects and created hashes
+
+	if ft := f.node().features; ft&msg.CreatedHashes == 0 {
+		ch = nil // disabled
+	} else if ft&msg.CreatedObjects == 0 {
+		co = nil // disabled
+	}
+
 	select {
-	case f.ff <- fill.Run():
+	case f.ff <- fill.Run(co, ch): // CO and CH level of exhaust (ha-ha)
 	case <-f.closeq:
 		fill.Close() // since, the result ignored
 	}
@@ -514,6 +548,8 @@ func (f *fillHead) request(c *Conn, seq uint64, key cipher.SHA256) {
 
 		f.successq <- c
 
+	case *msg.Err:
+		f.failureq <- failedRequest{c, seq, key, errors.New(x.Err)}
 	default:
 		f.failureq <- failedRequest{c, seq, key, ErrInvalidResponse}
 	}
@@ -529,6 +565,56 @@ func (f *fillHead) handleDelConn(c *Conn) {
 
 	if f.p.c == c {
 		f.p.c = nil // GC
+	}
+
+}
+
+// (sync, nodeHead main goroutine) request objects
+func (f *fillHead) handleRequests(keys []cipher.SHA256) {
+	f.node().Debugf(FillPin, "[fill] request %n objects related to %s",
+		len(keys), f.r.r.Short())
+
+	// chose connection to request from (so it can be only one connection
+	// from which related Root received in most cases) and response wiht
+	// nil if no such connection
+
+	var c *Conn
+
+	for e := f.fc.Front(); e != nil; e = e.Next() {
+		if x := e.Value.(*Conn); x.features&msg.CreatedHashes != 0 {
+			c = x // found
+			break
+		}
+	}
+
+	if c == nil {
+		f.rps <- nil // no connections to make the request
+		return
+	}
+
+	var reply, err = c.sendRequest(&msg.RqObjects{Keys: keys})
+
+	if err != nil {
+		f.rps <- nil
+		return
+	}
+
+	// TODO (kostyarin): (see above) handle error and close the connection
+	//                   by some errors like the handleRequestFailure does it
+
+	switch x := reply.(type) {
+	case *msg.Objects:
+
+		// don't check hashes to avoid double hash calculating
+
+		// TODO (kostyarin): do it using wrapper around [][]byte
+
+		f.rps <- x.Values
+
+	default:
+		f.rps <- nil // failure
+
+		// TODO (kostyarin): see TODO above
 	}
 
 }

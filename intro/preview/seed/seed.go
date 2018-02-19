@@ -193,7 +193,7 @@ func generate(
 	}
 
 	// and publish it
-	n.Publish(r)
+	n.Publish(r, up)
 
 	//
 	// now, let's add posts one by one
@@ -226,7 +226,7 @@ func generate(
 			log.Fatal(err)
 		}
 
-		n.Publish(r)
+		n.Publish(r, up)
 
 	}
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/skycoin/cxo/skyobject"
 	"github.com/skycoin/cxo/skyobject/registry"
+
+	"github.com/skycoin/cxo/node/msg"
 )
 
 type User struct {
@@ -49,6 +51,8 @@ func getTestConfig(prefix string) (c *Config) {
 		c.Logger.Debug = true
 		c.Logger.Pins = ^c.Logger.Pins // all
 	}
+
+	c.Features = msg.Features(0)
 
 	return
 

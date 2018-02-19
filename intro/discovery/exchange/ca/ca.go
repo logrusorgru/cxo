@@ -185,7 +185,7 @@ func generate(wg *sync.WaitGroup, closed <-chan struct{}, n *node.Node) {
 	}
 
 	// and publish it
-	n.Publish(r)
+	n.Publish(r, up)
 
 	//
 	// now, let's add posts one by one
@@ -218,7 +218,7 @@ func generate(wg *sync.WaitGroup, closed <-chan struct{}, n *node.Node) {
 			log.Fatal(err)
 		}
 
-		n.Publish(r)
+		n.Publish(r, up)
 
 	}
 
