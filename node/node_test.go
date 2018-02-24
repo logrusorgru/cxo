@@ -12,7 +12,7 @@ import (
 )
 
 // default "slow" timeout
-var slow time.Duration = 500 * time.Millisecond
+var slow = 500 * time.Millisecond
 
 // obtain "slow" timeout from flags to increase it in some cases
 func init() {

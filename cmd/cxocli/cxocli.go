@@ -133,11 +133,11 @@ func main() {
 	flag.StringVar(&cert,
 		"cert",
 		"",
-		"path to TLS *.crt file to  use TLS conenction")
+		"path to TLS *.crt file to  use TLS connection")
 	flag.StringVar(&key,
 		"key",
 		"",
-		"path to TLS *.key file to  use TLS conenction")
+		"path to TLS *.key file to  use TLS connection")
 
 	flag.BoolVar(&help,
 		"h",

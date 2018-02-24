@@ -21,7 +21,7 @@ import (
 	"github.com/skycoin/cxo/intro"    // types
 )
 
-// defaults
+// CleanInterval is default cleaning interval
 const CleanInterval time.Duration = 15 * time.Second // clean every 15s
 
 // interest feeds

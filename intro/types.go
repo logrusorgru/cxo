@@ -7,7 +7,7 @@ import (
 	"github.com/skycoin/cxo/skyobject/registry"
 )
 
-// A User's information
+// A User represents user's information
 type User struct {
 	Name string // user's name
 	Age  uint32 // user's age

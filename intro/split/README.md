@@ -14,7 +14,7 @@ This is a way to save big objects in the CXO.
 
 
 For the example, the MaxObjectSiz reduced to 1024 - the lowest possible
-bound of the limit. Actually, data saved with prefix (4 bytes) that decribes
+bound of the limit. Actually, data saved with prefix (4 bytes) that describes
 length of the data.
 
 The example loads files from fielsystem and stores them in CXO. And after,

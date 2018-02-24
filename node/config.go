@@ -146,6 +146,8 @@ type NetConfig struct {
 	// Pings time.Duration
 }
 
+// FromFlags obtains values from command line flags.
+// Call flag.Parse after this method.
 func (n *NetConfig) FromFlags(prefix, ofWhat string) {
 
 	flag.StringVar(&n.Listen,
@@ -208,6 +210,8 @@ func (t *TLSConfig) Init() (err error) {
 	return
 }
 
+// FromFlags obtains values from command line flags.
+// Call flag.Parse after this method.
 func (t *TLSConfig) FromFlags(prefix, forWhat string) {
 
 	flag.StringVar(&t.Cert,
@@ -225,7 +229,7 @@ func (t *TLSConfig) FromFlags(prefix, forWhat string) {
 // An RPCConfig represents RPC configurations.
 // Set Listen to empty string to disable RPC.
 // Provide own TLS config using TLS field. Provide
-// paths to cert and key fiels to load certificate
+// paths to cert and key files to load certificate
 // from.
 type RPCConfig struct {
 	Listen    string // listening address, use ":0" for OS-choosed

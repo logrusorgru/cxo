@@ -576,7 +576,7 @@ func (f *fillHead) handleRequests(keys []cipher.SHA256) {
 		len(keys), f.r.r.Short())
 
 	// chose connection to request from (so it can be only one connection
-	// from which related Root received in most cases) and response wiht
+	// from which related Root received in most cases) and response with
 	// nil if no such connection
 
 	var c *Conn

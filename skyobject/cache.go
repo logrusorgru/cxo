@@ -252,7 +252,7 @@ func (c *Cache) Registry(
 	return
 }
 
-// Clsoe the Cache returning DB error
+// Close the Cache returning DB error
 // or nil
 func (c *Cache) Close() (err error) {
 

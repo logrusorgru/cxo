@@ -18,11 +18,7 @@ See [CXO wiki](https://github.com/skycoin/cxo/wiki/Get-Started) to get this info
 
 See [CXO wiki](https://github.com/skycoin/cxo/wiki) to get this information
 
-### Installation and Version
-
-Use [dep](https://github.com/golang/dep) to use particular version of the
-CXO. The master branch of the repository points to latest stable release.
-Actually, it points to alpha-release for now.
+### Installation
 
 To get the release use
 ```
@@ -70,12 +66,18 @@ And
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-#### Versioning
+#### Version
+
+Dependencies are managed with [dep](https://golang.github.io/dep). The master
+branch of the repository points to latest stable release. Actually, it points
+to beta-release for now.
+
+##### Versioning
 
 The CXO uses MAJOR.MINOR versions. Where MAJOR is
 - API cahgnes
 - protocol chagnes
-- data representation chagnes
+- data representation chagnes (database format)
 
 and MINOR is
 - small API changes
@@ -86,65 +88,10 @@ Thus, DB files are not compatible between different major versions. Nodes
 with different major versions can't communicate. Saved data may have another
 representation.
 
-##### Versions
+###### Versions
 
 - 2.1 d4e4ab573c438a965588a651ee1b76b8acbb3724
-- 3.0 master
-
-### Dependencies
-
-Dependencies are managed with [dep](https://github.com/golang/dep).
-
-To install `dep`:
-
-```sh
-go get -u github.com/golang/dep
-```
-
-`dep` vendors all dependencies into the repo.
-
-If you change the dependencies, you should update them as needed with
-`dep ensure`.
-
-Use `dep help` for instructions on vendoring a specific version of a dependency,
-or updating them.
-
-After adding a new dependency (with `dep ensure`), run `dep prune` to remove any
-unnecessary subpackages from the dependency.
-
-When updating or initializing, `dep` will find the latest version of a
-dependency that will compile.
-
-Examples:
-
-Initialize all dependencies:
-
-```sh
-dep init
-dep prune
-```
-
-Update all dependencies:
-
-```sh
-dep ensure -update -v
-dep prune
-```
-
-Add a single dependency (latest version):
-
-```sh
-dep ensure github.com/foo/bar
-dep prune
-```
-
-Add a single dependency (more specific version), or downgrade an existing
-dependency:
-
-```sh
-dep ensure github.com/foo/bar@tag
-dep prune
-```
-
+- 3.0 f87f9c197597bc78ec301d32b4678f50e9f52726
+- 4.0 master (beta)
 
 ---

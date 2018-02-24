@@ -249,7 +249,7 @@ func (n *Node) Publish(r *registry.Root, up *skyobject.Unpack) (err error) {
 
 		// size limit
 
-		// TOOD (kostyarin): use r.Encode and constant value
+		// TODO (kostyarin): use r.Encode and constant value
 		//                   to speed up finding of the rootSize
 		var rootSize = len(encoder.Serialize(&msg.Root{
 			Feed:  r.Pub,

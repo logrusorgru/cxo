@@ -46,6 +46,7 @@ func (r *RPCServer) RegisterName(name string, rcvr interface{}) (err error) {
 	return r.r.RegisterName(name, rcvr)
 }
 
+// Listen used to start RPC listener using provided configurations
 func (r *RPCServer) Listen(conf *RPCConfig) (err error) {
 
 	r.r.RegisterName("node", &RPC{r.n})
@@ -76,6 +77,8 @@ func (r *RPCServer) run() {
 	r.r.Accept(r.l)
 }
 
+// Address of related RPC listener or blank string
+// if the RPC server is not listening
 func (r *RPCServer) Address() (address string) {
 	if r.l != nil {
 		address = r.l.Addr().String()
@@ -83,6 +86,7 @@ func (r *RPCServer) Address() (address string) {
 	return
 }
 
+// Close the RPC server
 func (r *RPCServer) Close() (err error) {
 	if r.l != nil {
 		err = r.l.Close()
