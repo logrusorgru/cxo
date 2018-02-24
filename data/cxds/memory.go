@@ -217,7 +217,7 @@ func (m *memoryCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 	return
 }
 
-// IterateDel all keys deleteing
+// IterateDel all keys deleting
 func (m *memoryCXDS) IterateDel(
 	iterateFunc data.IterateObjectsDelFunc,
 ) (

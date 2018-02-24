@@ -75,6 +75,7 @@ to beta-release for now.
 ##### Versioning
 
 The CXO uses MAJOR.MINOR versions. Where MAJOR is
+
 - API cahgnes
 - protocol chagnes
 - data representation chagnes (database format)
