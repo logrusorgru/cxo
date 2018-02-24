@@ -8,16 +8,28 @@
   version = "v1.3.1"
 
 [[projects]]
-  branch = "master"
   name = "github.com/disiqueira/gotree"
   packages = ["."]
   revision = "4c287e3603a85571820a6a8ad100a45002150053"
+  version = "0.2.0"
 
 [[projects]]
   branch = "master"
   name = "github.com/google/btree"
   packages = ["."]
-  revision = "316fb6d3f031ae8f4d457c6c5186b9e3ded70435"
+  revision = "e89373fe6b4a7413d7acd6da1725b83ef713e6e4"
+
+[[projects]]
+  name = "github.com/klauspost/cpuid"
+  packages = ["."]
+  revision = "ae7887de9fa5d2db4eaa8174a7eff2c1ac00f2da"
+  version = "v1.1"
+
+[[projects]]
+  name = "github.com/klauspost/reedsolomon"
+  packages = ["."]
+  revision = "6bb6130ff6a76a904c1841707d65603aec9cc288"
+  version = "v1.6"
 
 [[projects]]
   branch = "master"
@@ -47,7 +59,7 @@
   branch = "master"
   name = "github.com/peterh/liner"
   packages = ["."]
-  revision = "3681c2a912330352991ecdd642f257efe5b85518"
+  revision = "161ea9c37d6d4e97afe7f8f9cde7e647d49bd091"
 
 [[projects]]
   name = "github.com/sirupsen/logrus"
@@ -57,9 +69,15 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/skycoin/cxo"
+  packages = ["cxoutils","data","data/cxds","data/idxdb","data/tests","intro","node","node/log","node/msg","skyobject","skyobject/registry","skyobject/statutil"]
+  revision = "f87f9c197597bc78ec301d32b4678f50e9f52726"
+
+[[projects]]
+  branch = "master"
   name = "github.com/skycoin/net"
-  packages = ["client","conn","factory","msg","server","skycoin-messenger/factory"]
-  revision = "afefeb5eb5323036d4da5cfab5805c9e5e2ac288"
+  packages = ["client","conn","factory","msg","server","skycoin-messenger/factory","util"]
+  revision = "4bcee2eb0c36a33dd22757247c83ab7e78c50834"
 
 [[projects]]
   name = "github.com/skycoin/skycoin"
@@ -71,17 +89,17 @@
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["pbkdf2","ssh/terminal"]
-  revision = "0fcca4842a8d74bfddc2c96a073bd2a4d2a7a2e8"
+  revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix","windows"]
-  revision = "83801418e1b59fb1880e363299581ee543af32ca"
+  revision = "88d2dcc510266da9f7f8c7f34e1940716cab5f5c"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c96d3e66920d0b0759178e4eaa3489ce948ebf8cd60782728a1692eb4f589223"
+  inputs-digest = "ffab6db150b4c5b9a63c31afdb48e83c4f62fa5c9ab36e7b5a8b1977c922bb5a"
   solver-name = "gps-cdcl"
   solver-version = 1
