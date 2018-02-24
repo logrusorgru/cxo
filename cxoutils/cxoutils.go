@@ -15,6 +15,7 @@
 package cxoutils
 
 import (
+	"io"
 	"time"
 
 	"github.com/skycoin/skycoin/src/cipher"
@@ -115,4 +116,20 @@ func RemoveObjects(c *skyobject.Container, timeout time.Duration) (err error) {
 		})
 
 	return
+}
+
+// CXDSDumpElement used to encode elements of CXDS to dump
+type CXDSDumpElement struct {
+	Key cipher.SHA256 // key of the objects
+	RC  uint32        // references counter
+	Val []byte        // value
+}
+
+// CXDSDumpHead used to keep CXDS version and brief info
+type CXDSDumpHead struct {
+	//
+}
+
+func Dump(ds data.CXDS, to io.Writer) (err error) {
+	ds.Iterate(func(key cipher.SHA256, rc uint32, val []byte))
 }

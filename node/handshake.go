@@ -96,6 +96,7 @@ func (c *Conn) performHandshake(nodeCloseq <-chan struct{}) (err error) {
 		case *msg.Ack:
 
 			c.peerID = x.NodeID
+			c.features = x.Features
 
 			return // ok
 

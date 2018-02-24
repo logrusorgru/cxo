@@ -1,6 +1,7 @@
 package node
 
 import (
+	"flag"
 	"testing"
 	"time"
 
@@ -10,7 +11,17 @@ import (
 	"github.com/skycoin/cxo/skyobject/registry"
 )
 
-const TM time.Duration = 500 * time.Millisecond
+// default "slow" timeout
+var slow time.Duration = 500 * time.Millisecond
+
+// obtain "slow" timeout from flags to increase it in some cases
+func init() {
+	flag.DurationVar(&slow,
+		"slow-timeout",
+		slow,
+		"change 'slow' timeout")
+	flag.Parse()
+}
 
 func getTestConfigNotListen(prefix string) (c *Config) {
 	c = getTestConfig(prefix)
@@ -282,20 +293,20 @@ func TestNode_Publish(t *testing.T) {
 
 	select {
 	case <-gr1:
-	case <-time.After(TM):
+	case <-time.After(slow):
 		t.Fatal("not received")
 	}
 
 	select {
 	case <-gr2:
-	case <-time.After(TM):
+	case <-time.After(slow):
 		t.Fatal("not received")
 	}
 
 	select {
 	case <-gn1:
 		t.Fatal("received")
-	case <-time.After(TM):
+	case <-time.After(slow):
 	}
 
 	// ok, now let's disconnect one by one and check
@@ -306,7 +317,7 @@ func TestNode_Publish(t *testing.T) {
 	assertNil(t, err)
 	c.Close()
 
-	<-time.After(TM)
+	<-time.After(slow)
 
 	assertIDs(t, ln.Connections(), sn1.ID(), sn2.ID())
 	assertIDs(t, ln.ConnectionsOfFeed(pk), sn1.ID(), sn2.ID())
@@ -318,7 +329,7 @@ func TestNode_Publish(t *testing.T) {
 	assertNil(t, err)
 	c.Close()
 
-	<-time.After(TM)
+	<-time.After(slow)
 
 	assertIDs(t, ln.Connections(), sn1.ID())
 	assertIDs(t, ln.ConnectionsOfFeed(pk), sn1.ID())
@@ -330,7 +341,7 @@ func TestNode_Publish(t *testing.T) {
 	assertNil(t, err)
 	c.Close()
 
-	<-time.After(TM)
+	<-time.After(slow)
 
 	assertIDs(t, ln.Connections())
 	assertIDs(t, ln.ConnectionsOfFeed(pk))

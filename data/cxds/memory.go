@@ -250,7 +250,7 @@ func (m *memoryCXDS) IterateDel(
 	return
 }
 
-// amoutn of objects
+// amount of objects
 func (m *memoryCXDS) Amount() (all, used int) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
@@ -264,6 +264,11 @@ func (m *memoryCXDS) Volume() (all, used int) {
 	defer m.mx.RUnlock()
 
 	return m.voluemAll, m.volumeUsed
+}
+
+// Version returns API version
+func (*memoryCXDS) Version() int {
+	return Version
 }
 
 // Close DB

@@ -80,6 +80,9 @@ type CXDS interface {
 	// Volume of objects
 	Volume() (all, used int)
 
+	// Version returns API version
+	Version() int
+
 	//
 	// Close
 	//

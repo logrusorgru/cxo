@@ -571,7 +571,8 @@ func (f *fillHead) handleDelConn(c *Conn) {
 
 // (sync, nodeHead main goroutine) request objects
 func (f *fillHead) handleRequests(keys []cipher.SHA256) {
-	f.node().Debugf(FillPin, "[fill] request %n objects related to %s",
+
+	f.node().Debugf(FillPin, "[fill] request %d objects related to %s",
 		len(keys), f.r.r.Short())
 
 	// chose connection to request from (so it can be only one connection

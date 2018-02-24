@@ -243,8 +243,12 @@ func (c *Container) Fill(
 		f.rqs = rqs // keep the channels to use them later
 		f.rps = rps //
 
-		f.pincs = make(map[cipher.SHA256]int) // track ceated obejcts
+		// f.pincs = make(map[cipher.SHA256]int) // track ceated obejcts
 	}
+
+	// TODO (kostyarin): don't create this mape if CreatedHashes or
+	// CreatedObjects features are not used by this node
+	f.pincs = make(map[cipher.SHA256]int) // track ceated obejcts
 
 	f.incs = make(map[cipher.SHA256]int)
 	f.pre = make(map[cipher.SHA256]struct{})
@@ -347,10 +351,6 @@ func (f *Filler) Go(fn func()) {
 // and created hashes
 func (f *Filler) features(co [][]byte, ch []cipher.SHA256) (err error) {
 
-	if f.rqs == nil {
-		return // this node doesn't support this features
-	}
-
 	// co and ch
 
 	// So, we can't just save the objects since we don't
@@ -359,7 +359,9 @@ func (f *Filler) features(co [][]byte, ch []cipher.SHA256) (err error) {
 	// of all this objects and reject objects that are not
 	// really used
 
-	if ch != nil {
+	// if the f.rqs is nil, then this node doesn't support this feature
+
+	if f.rqs != nil && ch != nil {
 		if co, err = f.requsetObjects(ch); err != nil {
 			return
 		}

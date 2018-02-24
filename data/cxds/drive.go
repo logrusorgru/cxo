@@ -568,6 +568,11 @@ func (d *driveCXDS) Volume() (all, used int) {
 	return d.volumeAll, d.volumeUsed
 }
 
+// Version returns API
+func (*driveCXDS) Version() int {
+	return Version
+}
+
 // Close DB
 func (d *driveCXDS) Close() (err error) {
 

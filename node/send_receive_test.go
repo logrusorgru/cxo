@@ -78,7 +78,12 @@ func getTestRegistry() (r *registry.Registry) {
 
 }
 
-func assertNil(t *testing.T, err error) {
+type helpFataler interface {
+	Helper()
+	Fatal(args ...interface{})
+}
+
+func assertNil(t helpFataler, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +173,7 @@ func Test_send_receive(t *testing.T) {
 	// wait the Root
 	select {
 	case rr = <-fr:
-	case <-time.After(10 * time.Second):
+	case <-time.After(slow * 20):
 
 		t.Log("Root :    ", r.Hash.Hex()[:7])
 		t.Log("Registry: ", r.Reg.Short())
@@ -200,7 +205,7 @@ func printObjects(t *testing.T, prefix string, c *skyobject.Container) {
 }
 
 func dynamicByValue(
-	t *testing.T,
+	t helpFataler,
 	up *skyobject.Unpack,
 	name string,
 	obj interface{},
@@ -328,7 +333,7 @@ func Test_send_receive_refs(t *testing.T) {
 	// wait the Root
 	select {
 	case rr = <-fr:
-	case <-time.After(10 * time.Second):
+	case <-time.After(slow * 20):
 
 		t.Log("Root :    ", r.Hash.Hex()[:7])
 		t.Log("Registry: ", r.Reg.Short())
