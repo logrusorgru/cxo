@@ -5,7 +5,7 @@ import (
 )
 
 // IdxDBAPIVersion is version of IdxDB related interfaces
-const IdxDBAPIVersion = 2
+const IdxDBAPIVersion = 5
 
 // An IterateFeedsFunc represents function for
 // iterating over all feeds IdxDB contains
