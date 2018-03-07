@@ -16,15 +16,8 @@ import (
 
 var (
 	objsBucket = []byte("o") // objects bucket
-	metaBucket = []byte("m") // meta information
-
-	versionKey = []byte("version") // version
-
-	amountAllKey  = []byte("amount_all")  // amount all
-	amountUsedKey = []byte("amount_used") // amount used
-
-	volumeAllKey  = []byte("volume_all")  // volume all
-	volumeUsedKey = []byte("volume_used") // volume all
+	infoBucket = []byte("i") // information bucket
+	infoKey    = infoBucket  // information key
 )
 
 type driveCXDS struct {
@@ -39,21 +32,32 @@ type driveCXDS struct {
 	b *bolt.DB
 }
 
-// NewDriveCXDS opens existing CXDS-database
+// NewCXDS opens existing CXDS-database
 // or creates new by given file name. Underlying
 // database is boltdb (github.com/boltdb/bolt).
 // E.g. this stores data on disk
-func NewDriveCXDS(fileName string) (ds data.CXDS, err error) {
+func NewCXDS(
+	fileName string, //    : DB file path
+	mode os.FileMode, //   : file mode
+	opts *bolt.Options, // : BoltDB options
+) (
+	ds data.CXDS, //       : CXDS or
+	err error, //          : an error
+) {
 
 	var created bool // true if the file does not exist
 
 	_, err = os.Stat(fileName)
 	created = os.IsNotExist(err)
 
+	if opts == nil {
+		opts = &bolt.Options{
+			Timeout: time.Millisecond * 500,
+		}
+	}
+
 	var b *bolt.DB
-	b, err = bolt.Open(fileName, 0644, &bolt.Options{
-		Timeout: time.Millisecond * 500,
-	})
+	b, err = bolt.Open(fileName, mode, opts)
 
 	if err != nil {
 		return
@@ -74,8 +78,8 @@ func NewDriveCXDS(fileName string) (ds data.CXDS, err error) {
 
 	err = b.Update(func(tx *bolt.Tx) (err error) {
 
-		// first of all, take a look the meta bucket
-		var info = tx.Bucket(metaBucket)
+		// first of all, take a look the info bucket
+		var info = tx.Bucket(infoBucket)
 
 		if info == nil {
 
@@ -86,12 +90,18 @@ func NewDriveCXDS(fileName string) (ds data.CXDS, err error) {
 			}
 
 			// create the bucket and put meta information
-			if info, err = tx.CreateBucket(metaBucket); err != nil {
+			if info, err = tx.CreateBucket(infoBucket); err != nil {
 				return
 			}
 
-			// put version
-			if err = info.Put(versionKey, versionBytes()); err != nil {
+			// put meta info
+
+			var meta metaInfo
+
+			meta.Version = Version
+			meta.API = data.CXDSAPIVersion
+
+			if err = info.Put(infoBucket, versionBytes()); err != nil {
 				return
 			}
 

@@ -4,6 +4,9 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
+// IdxDBAPIVersion is version of IdxDB related interfaces
+const IdxDBAPIVersion = 2
+
 // An IterateFeedsFunc represents function for
 // iterating over all feeds IdxDB contains
 type IterateFeedsFunc func(cipher.PubKey) error
@@ -18,8 +21,8 @@ type Feeds interface {
 	// then the Del returns ErrNoSuchFeed
 	Del(pk cipher.PubKey) (err error)
 
-	// Iterate all feeds. Use ErrStopRange to break
-	// it iteration. The Iterate passes any error
+	// Iterate all feeds. Use ErrStopIteration to
+	// stop iteration. The Iterate passes any error
 	// returned from given function through. Except
 	// ErrStopIteration that turns nil. It's possible
 	// to mutate the IdxDB inside the Iterate

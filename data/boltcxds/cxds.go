@@ -16,8 +16,13 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
-// Version of the CXDS API and data representation
-const Version int = 2 // previous is 1
+// the contants used to dump and load
+const (
+	// Version of the CXDS data representation
+	Version int = 3 // previous is 2
+	// Engine is DB engine
+	Engine = "BoltDB"
+)
 
 // comon errors
 var (
@@ -48,7 +53,19 @@ func getHash(val []byte) (key cipher.SHA256) {
 	return cipher.SumSHA256(val)
 }
 
-// version
+// meta info
+
+type metaInfo struct {
+	Engine  string // engine is allways "BoltDB"
+	Version uint32 // data representation
+	API     uint32 // API version
+
+	AmountAll  uint32 // amount of all objects
+	AmountUsed uint32 // amount of used objects (rc > 0)
+
+	VolumeAll  uint32 // volume of all objets
+	VolumeUsed uint32 // volume of used objects (rc > 0)
+}
 
 func versionBytes() []byte {
 	return encodeUint32(uint32(Version))

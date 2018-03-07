@@ -45,9 +45,9 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 - `cmd` - apps
   - `cxocli` - CLI is admin RPC based tool to control any CXO-node
     ([wiki/CLI](https://github.com/skycoin/cxo/wiki/CLI)).
-  - `cxod` - an averga CXO daemon that accepts all subscriptions
-- `cxoutils` - basic utilities
-- `data` - database interfaces, objects and errors
+  - `cxod` - an average CXO daemon that accepts all subscriptions
+- `cxoutils` - basic utilities (database cleaning)
+- `data` - database interfaces, implemntations, objects and errors
   - `data/cxds` - CX data store is implementation of key-value store
   - `data/idxdb` - implementation of index DB
   - `data/tests` - tests for the `data` interfaces
@@ -55,7 +55,7 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
   - `node/log` - logger
   - `node/msg` - internal node-to-node protocol
 - `skyobject` - CXO core: encode/decode, etc
-  - `registry` - schemas, types, etc,
+  - `registry` - schemas, types, etc
 
 And
 

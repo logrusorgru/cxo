@@ -4,6 +4,9 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
+// CXDSAPIVersion is version of the CXDS interface
+const CXDSAPIVersion = 3
+
 // An IterateObjectsFunc used to iterate over objects
 // of the CXDS. All arguments are read only and must
 // not be modified.
@@ -34,7 +37,11 @@ type IterateObjectsDelFunc func(
 //
 // The CXDS keeps elements with rc == 0. End-user should
 // track size of the DB and remove objects that doesn't
-// used to free up space
+// used to free up space.
+//
+// Object in the CXDS can be strored by some order, but
+// but the oreder can be chaotic. The basic requirement
+// is ability to continue an iteration after pause.
 type CXDS interface {
 
 	// Get and change references counter (rc). If the
@@ -59,29 +66,46 @@ type CXDS interface {
 	// then value doesn't exist. The Inc returns new rc
 	Inc(key cipher.SHA256, inc int) (rc uint32, err error)
 
-	// Iterate all keys in CXDS. The rc is refs count.
-	// Use ErrStopIteration to stop an iteration.
+	// Iterate all keys in CXDS. Use ErrStopIteration to stop
+	// an iteration. The Iterate method never lock DB and any
+	// parallel Get/Set/Inc/Del call can be performed with call
+	// of the Iterate at the same time. The Iterate guarantees
+	// that all elements of DB will be iterated inclusive or
+	// exclusive elements created during call of the Iterate
+	// method. And exclusive elements deleted during call of
+	// the Iterate method. Any order is not guaranteed. The
+	// Iterate can lock DB by time of the IterateObjectsFunc
+	// call. See also docs for the IterateObjectsFunc.
 	Iterate(iterateFunc IterateObjectsFunc) (err error)
 
-	// IterateDel used to remove objects
-	IterateDel(iterateFunc IterateObjectsDelFunc) (err error)
+	// IterateDel used to remove objects. See also docs for
+	// the IterateObjectsDelFunc. The IterateDel works like
+	// the Iterate (e.g. don't lock DB allowing long calls).
+	IterateDel(iterateFunc IterateObjectsDelFunc) error
 
 	// Del removes object with given key unconditionally.
 	// The Del method doesn't return an error if object
-	// doesn't exist
+	// doesn't exist. Handle with care.
 	Del(key cipher.SHA256) (err error)
 
 	//
 	// Stat
 	//
 
-	// Amount of objects
+	// Amount of objects.
 	Amount() (all, used int)
-	// Volume of objects
+	// Volume of objects. The volume measured
+	// in bytes. The volume consist of payload
+	// only and not includes keys and any other
+	// meta information like references counter
+	// etc.
 	Volume() (all, used int)
 
-	// Version returns API version
-	Version() int
+	// IsSafeClosed is flag that means that DB has been
+	// closed successfully last time. If the IsSafeClosed
+	// returns false, then may be some repair required (it
+	// depends).
+	IsSafeClosed() bool
 
 	//
 	// Close
