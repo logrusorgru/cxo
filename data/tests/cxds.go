@@ -312,6 +312,16 @@ func CXDSDel(t *testing.T, ds data.CXDS) {
 	})
 }
 
+func indexOf(keys []cipher.SHA256, key cipher.SHA256) (i int) {
+	var k cipher.SHA256
+	for i, k = range keys {
+		if k == key {
+			return
+		}
+	}
+	return -1 // not found
+}
+
 func CXDSIterate(t *testing.T, ds data.CXDS) {
 	t.Helper()
 
@@ -319,11 +329,10 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 
 		var called int
 
-		var err = ds.Iterate(cipher.SHA256{},
-			func(hash cipher.SHA256, rc uint32, val []byte) (err error) {
-				called++
-				return
-			})
+		var err = ds.Iterate(func(cipher.SHA256, uint32, []byte) (_ error) {
+			called++
+			return
+		})
 
 		if err != nil {
 			t.Error(err)
@@ -342,52 +351,52 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 		t.Fatal(err)
 	}
 
-	t.Run("since", func(t *testing.T) {
+	t.Run("four", func(t *testing.T) {
 
-		for shift, since := range keys {
-			var called int
+		var called int
 
-			var err = ds.Iterate(since,
-				func(hash cipher.SHA256, rc uint32, val []byte) (err error) {
+		var err = ds.Iterate(
+			func(hash cipher.SHA256, rc uint32, val []byte) (err error) {
 
-					if called >= len(keys) {
-						t.Errorf("wrong times called: expected %d, got %d",
-							len(keys), called+1)
-						return data.ErrStopIteration
-					}
+				if called >= len(keys) {
+					t.Errorf("wrong times called: expected %d, got %d",
+						len(keys), called+1)
+					return data.ErrStopIteration
+				}
 
-					var index = (shift + called) % len(keys)
+				var index = indexOf(keys, hash)
 
-					if hash != keys[index] {
-						t.Error("wrong hash", shift, called)
-					}
+				if index < 0 {
+					t.Error("unexpected hash:", hash.Hex(), called)
+					return data.ErrStopIteration
+				}
 
-					if bytes.Compare(val, values[index]) != 0 {
-						t.Error("wrong value", shift, called)
-					}
+				if bytes.Compare(val, values[index]) != 0 {
+					t.Error("wrong value", called, index)
+				}
 
-					called++
-					return
-				})
+				called++
+				return
+			})
 
-			if err != nil {
-				t.Error(err)
-			}
+		if err != nil {
+			t.Error(err)
+		}
 
-			if called >= len(keys) {
-				t.Errorf("wrong times called: expected %d, got %d",
-					len(keys), called)
-			}
-
+		if called >= len(keys) {
+			t.Errorf("wrong times called: expected %d, got %d",
+				len(keys), called)
 		}
 
 	})
+
+	// TODO (kostyarin): test Get/Set/Inc/Del inside the Iterate
 
 	t.Run("stop", func(t *testing.T) {
 
 		var called int
 
-		var err = ds.Iterate(cipher.SHA256{},
+		var err = ds.Iterate(
 			func(cipher.SHA256, uint32, []byte) error {
 				called++
 				return data.ErrStopIteration
@@ -410,7 +419,7 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 			testError = errors.New("test error")
 		)
 
-		var err = ds.Iterate(cipher.SHA256{},
+		var err = ds.Iterate(
 			func(cipher.SHA256, uint32, []byte) error {
 				called++
 				return data.ErrStopIteration

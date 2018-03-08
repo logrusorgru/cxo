@@ -1,10 +1,9 @@
 package memcxds
 
 import (
-	"os"
 	"testing"
 
-	"github.com/skycoin/cxo/data"
+	//"github.com/skycoin/cxo/data"
 	"github.com/skycoin/cxo/data/tests"
 )
 

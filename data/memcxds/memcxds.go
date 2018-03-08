@@ -1,6 +1,8 @@
 package memcxds
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/skycoin/skycoin/src/cipher"
@@ -8,21 +10,11 @@ import (
 	"github.com/skycoin/cxo/data"
 )
 
-// object stored in memory
-type memoryObject struct {
-	hash cipher.SHA256 // key
-
-	rc  uint32 // rc
-	val []byte // value
-
-	next *memoryObject // next element
-}
+var ErrEmptyValue = errors.New("empty value")
 
 type memoryCXDS struct {
-	mx sync.RWMutex
-
-	length int
-	list   *memoryObject
+	mx  sync.RWMutex
+	kvs map[cipher.SHA256]memoryObject
 
 	amountAll  int
 	amountUsed int
@@ -31,33 +23,22 @@ type memoryCXDS struct {
 	volumeUsed int
 }
 
-// under lock
-func (m *memoryCXDS) set(mo *memoryObject) {
-
-	if m.length == 0 {
-		m.length++
-		m.list = mo
-		return
-	}
-
-	for el := m.list; el != nil; el = el.next {
-		if el.hash == mo.hash {
-			//
-		}
-	}
-
+// object stored in memory
+type memoryObject struct {
+	rc  uint32
+	val []byte
 }
 
-// NewCXDS creates CXDS-databse in memory. The
-// DB based on ordered doubly-linked list.
+// NewCXDS creates CXDS-databse in
+// memory. The DB based on golang map
 func NewCXDS() data.CXDS {
-	return &memoryCXDS{}
+	return &memoryCXDS{kvs: make(map[cipher.SHA256]memoryObject)}
 }
 
 func (m *memoryCXDS) av(rc, nrc uint32, vol int) {
 
 	if rc == 0 { // was dead
-		if nrc > 0 { // resurrected
+		if nrc > 0 { // an be resurrected
 			m.amountUsed++
 			m.volumeUsed += vol
 		}
@@ -66,7 +47,7 @@ func (m *memoryCXDS) av(rc, nrc uint32, vol int) {
 
 	// rc > 0 (was alive)
 
-	if nrc == 0 { // killed
+	if nrc == 0 { // an be killed
 		m.amountUsed--
 		m.volumeUsed -= vol
 	}
@@ -75,7 +56,7 @@ func (m *memoryCXDS) av(rc, nrc uint32, vol int) {
 
 func (m *memoryCXDS) incr(
 	key cipher.SHA256,
-	mo *memoryObject,
+	mo memoryObject,
 	rc uint32,
 	inc int,
 ) (
@@ -99,7 +80,7 @@ func (m *memoryCXDS) incr(
 	}
 
 	mo.rc = nrc
-	m.kvs.Replace(key, mo) // m.kvs[key] = mo
+	m.kvs[key] = mo
 
 	m.av(rc, nrc, len(mo.val))
 	return
@@ -124,21 +105,11 @@ func (m *memoryCXDS) Get(
 		defer m.mx.Unlock()
 	}
 
-	var moi, ok = m.kvs.Get(key)
-
-	if ok == true {
-		var mo = moi.(memoryObject)
+	if mo, ok := m.kvs[key]; ok {
 		val, rc = mo.val, mo.rc
 		rc = m.incr(key, mo, rc, inc)
 		return
 	}
-
-	// if mo, ok := m.kvs[key]; ok {
-	// 	val, rc = mo.val, mo.rc
-	// 	rc = m.incr(key, mo, rc, inc)
-	// 	return
-	// }
-
 	err = data.ErrNotFound
 	return
 }
@@ -154,7 +125,7 @@ func (m *memoryCXDS) Set(
 ) {
 
 	if inc <= 0 {
-		panicf("negative inc argument in Set: %d", inc)
+		panicf("invalid inc argument is Set: %d", inc)
 	}
 
 	if len(val) == 0 {
@@ -165,18 +136,10 @@ func (m *memoryCXDS) Set(
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
-	var moi, ok = m.kvs.Get(key)
-
-	if ok == true {
-		var mo = moi.(memoryObject)
+	if mo, ok := m.kvs[key]; ok {
 		rc = m.incr(key, mo, mo.rc, inc)
 		return
 	}
-
-	// if mo, ok := m.kvs[key]; ok {
-	// 	rc = m.incr(key, mo, mo.rc, inc)
-	// 	return
-	// }
 
 	// created
 
@@ -187,8 +150,7 @@ func (m *memoryCXDS) Set(
 	m.volumeUsed += len(val)
 
 	rc = uint32(inc)
-	m.kvs.Insert(key, memoryObject{rc, val})
-	// m.kvs[key] = memoryObject{rc, val}
+	m.kvs[key] = memoryObject{rc, val}
 
 	return
 }
@@ -210,18 +172,10 @@ func (m *memoryCXDS) Inc(
 		defer m.mx.Unlock()
 	}
 
-	var moi, ok = m.kvs.Get(key)
-
-	if ok == true {
-		var mo = moi.(memoryObject)
+	if mo, ok := m.kvs[key]; ok {
 		rc = m.incr(key, mo, mo.rc, inc)
 		return
 	}
-
-	// if mo, ok := m.kvs[key]; ok {
-	// 	rc = m.incr(key, mo, mo.rc, inc)
-	// 	return
-	// }
 
 	err = data.ErrNotFound
 	return
@@ -232,14 +186,11 @@ func (m *memoryCXDS) Del(key cipher.SHA256) (_ error) {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
-	var moi, ok = m.kvs.Get(key)
-	// var mo, ok = m.kvs[key]
+	var mo, ok = m.kvs[key]
 
 	if ok == false {
 		return // not found
 	}
-
-	var mo = moi.(memoryObject)
 
 	if mo.rc > 0 {
 		m.amountUsed--
@@ -249,113 +200,56 @@ func (m *memoryCXDS) Del(key cipher.SHA256) (_ error) {
 	m.amountAll--
 	m.voluemAll -= len(mo.val)
 
-	m.kvs.Delete(key)
 	return
 }
 
-func isErrNoValues(err error) bool {
-	return err.Error() ==
-		"No values found that were equal to or within the given bounds."
-}
+func (m *memoryCXDS) unlockedIterate(
+	k cipher.SHA256,
+	rc uint32,
+	v []byte,
+	iterateFunc data.IterateObjectsFunc,
+) (
+	err error,
+) {
 
-// 8x4 = 32, the lastHash is cipher.SHA256 every bit of which set to 1
-const lastHash = cipher.SHA256{
-	0xff, 0xff, 0xff, 0xff, // 1
-	0xff, 0xff, 0xff, 0xff, // 2
-	0xff, 0xff, 0xff, 0xff, // 3
-	0xff, 0xff, 0xff, 0xff, // 4
-	0xff, 0xff, 0xff, 0xff, // 5
-	0xff, 0xff, 0xff, 0xff, // 6
-	0xff, 0xff, 0xff, 0xff, // 7
-	0xff, 0xff, 0xff, 0xff, // 8
-}
+	m.mx.Unlock()
+	defer m.mx.Lock()
 
-// decrement since
-func decSince(b []byte) {
-
-	var zero cipher.SHA256
-
-	if bytes.Compare(b, zero[:]) == 0 {
-		copy(b, lastHash[:])
-		return
-	}
-
-	// from tail
-	for i := len(b) - 1; i >= 0; i-- {
-		if b[i] == 0 {
-			continue // decrement next byte
-		}
-		b[i]--
-		return
-	}
+	return iterateFunc(k, rc, v)
 }
 
 // Iterate all keys
-func (m *memoryCXDS) Iterate(
-	since cipher.SHA256, //                 : starting from
-	iterateFunc data.IterateObjectsFunc, // : iterator
-) (
-	err error, //                           : an error
-) {
+func (m *memoryCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
-	var smIter = func(rec sortedmap.Record) (cont bool) {
-
-		var (
-			key = rec.Key.(cipher.SHA256)
-			mo  = rec.Val.(memoryObject)
-		)
-
-		err = iterateFunc(key, mo.rc, mo.val)
-
-		// continue if the err is nil
-		return err != nil
-	}
-
-	// (1) from the since to the end (all inclusive)
-	// (2) from the beginning to the since (exclusive the since)
-
-	// (1)
-
-	defer func() {
-		if err == data.ErrStopIteration {
-			err = nil // reset the service error
+	for k, mo := range m.kvs {
+		if err = m.unlockedIterate(k, mo.rc, mo.val, iterateFunc); err != nil {
+			if err == data.ErrStopIteration {
+				err = nil
+			}
+			return
 		}
-	}()
-
-	var smErr = m.kvs.BoundedIterFunc(false, since, nil, smIter)
-
-	// sortedmap error, ignore it, if it is "no values" error
-	if smErr != nil && isErrNoValues(smErr) == false {
-		return smErr
 	}
-
-	if err != nil {
-		return // erro returned by iterateFunc
-	}
-
-	// (2)
-
-	decSince(since[:]) // exclude the since from the pass
-	smErr = m.kvs.BoundedIterFunc(false, nil, since, smIter)
-
-	// sortedmap error, ignore it if it is "no values" error
-	if smErr != nil && isErrNoValues(smErr) == false {
-		return smErr
-	}
-
-	// for k, mo := range m.kvs {
-	// 	if err = iterateFunc(k, mo.rc, mo.val); err != nil {
-	// 		if err == data.ErrStopIteration {
-	// 			err = nil
-	// 		}
-	// 		return
-	// 	}
-	// }
 
 	return
+}
+
+func (m *memoryCXDS) unlockedIterateDel(
+	k cipher.SHA256,
+	rc uint32,
+	v []byte,
+	iterateFunc data.IterateObjectsDelFunc,
+) (
+	del bool,
+	err error,
+) {
+
+	m.mx.Unlock()
+	defer m.mx.Lock()
+
+	return iterateFunc(k, rc, v)
 }
 
 // IterateDel all keys deleting
@@ -371,7 +265,8 @@ func (m *memoryCXDS) IterateDel(
 	var del bool
 
 	for k, mo := range m.kvs {
-		if del, err = iterateFunc(k, mo.rc, mo.val); err != nil {
+		del, err = m.unlockedIterateDel(k, mo.rc, mo.val, iterateFunc)
+		if err != nil {
 			if err == data.ErrStopIteration {
 				err = nil
 			}
@@ -407,9 +302,11 @@ func (m *memoryCXDS) Volume() (all, used int) {
 	return m.voluemAll, m.volumeUsed
 }
 
-// Version returns API version
-func (*memoryCXDS) Version() int {
-	return Version
+// IsSafeClosed allways returns true, because
+// the DB placed in memory and destroyed after
+// closing.
+func (*memoryCXDS) IsSafeClosed() bool {
+	return true
 }
 
 // Close DB
@@ -419,4 +316,8 @@ func (m *memoryCXDS) Close() (_ error) {
 
 	m.kvs = nil // clear
 	return
+}
+
+func panicf(format string, args ...interface{}) {
+	panic(fmt.Sprintf(format, args...))
 }

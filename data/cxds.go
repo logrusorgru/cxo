@@ -10,12 +10,13 @@ const CXDSAPIVersion = 5
 // An IterateObjectsFunc used to iterate over objects
 // of the CXDS. All arguments are read only and must
 // not be modified.
-type IterateObjectsFunc func(rc uint32, val []byte) error
+type IterateObjectsFunc func(key cipher.SHA256, rc uint32, val []byte) error
 
 // An IterateObjectsDelFunc used to iterate over objects
 // deleting them by choose. All arguments are read only
 // and must not be modified.
 type IterateObjectsDelFunc func(
+	key cipher.SHA256,
 	rc uint32,
 	val []byte,
 ) (
