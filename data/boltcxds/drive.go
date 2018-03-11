@@ -87,7 +87,8 @@ type driveCXDS struct {
 	rwIters map[*pauseResume]struct{} // read-write iterators
 
 	// underlying DB
-	b *bolt.DB
+	b      *bolt.DB
+	closeo sync.Once
 }
 
 func (d *driveCXDS) addReadOnlyIterator(pr *pauseResume) {
@@ -234,13 +235,19 @@ func NewCXDS(
 		return
 	}
 
+	// save blank stat to create the record and load after
 	if created == true {
-		dr.isSafeClosed = true // ok for fresh DB
-	} else {
-		if err = dr.loadStat(); err != nil {
+		if err = dr.saveStat(); err != nil {
 			return
 		}
 	}
+
+	if err = dr.loadStat(); err != nil {
+		return
+	}
+
+	dr.roIters = make(map[*pauseResume]struct{})
+	dr.rwIters = make(map[*pauseResume]struct{})
 
 	ds = dr
 	return
@@ -586,9 +593,6 @@ func (d *driveCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 				err = iterateFunc(since, getRefsCount(v), v[4:])
 
 				if err != nil {
-					if err == data.ErrStopIteration {
-						err = nil
-					}
 					return
 				}
 
@@ -601,6 +605,9 @@ func (d *driveCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 		}) // func(tx *bolt.Tx) error
 
 		if err != nil {
+			if err == data.ErrStopIteration {
+				err = nil
+			}
 			return // break by the error
 		}
 
@@ -654,9 +661,6 @@ func (d *driveCXDS) IterateDel(
 				rc = getRefsCount(v)
 
 				if del, err = iterateFunc(since, rc, v[4:]); err != nil {
-					if err == data.ErrStopIteration {
-						err = nil
-					}
 					return
 				}
 
@@ -680,7 +684,10 @@ func (d *driveCXDS) IterateDel(
 		}) // func(tx *bolt.Tx) error
 
 		if err != nil {
-			return // an error
+			if err == data.ErrStopIteration {
+				err = nil
+			}
+			return // an error or stop
 		}
 
 		if done == false {
@@ -716,31 +723,25 @@ func (d *driveCXDS) IsSafeClosed() bool {
 	return d.isSafeClosed
 }
 
-func isNotOpen(err error) bool {
-	return err == bolt.ErrDatabaseNotOpen
-}
-
 // Close DB
 func (d *driveCXDS) Close() (err error) {
 
-	if err = d.b.Sync(); err != nil {
-		if isNotOpen(err) == true {
+	d.closeo.Do(func() {
+		if err = d.b.Sync(); err != nil {
+			d.b.Close() // drop error
 			return
 		}
-		d.b.Close() // drop error
-		return
-	}
 
-	// save stat (amounts and volumes) and set safe-closing flag to true
-	if err = d.saveStat(); err != nil {
-		if isNotOpen(err) == true {
+		// save stat (amounts and volumes) and set safe-closing flag to true
+		if err = d.saveStat(); err != nil {
+			d.b.Close() // drop error
 			return
 		}
-		d.b.Close() // drop error
-		return
-	}
 
-	return d.b.Close()
+		err = d.b.Close()
+	})
+
+	return
 }
 
 func copySlice(in []byte) (got []byte) {

@@ -16,61 +16,46 @@ func testShouldNotPanic(t *testing.T) {
 	}
 }
 
-func testDriveDS(t *testing.T) (ds data.CXDS) {
+func testDS(t *testing.T) (ds data.CXDS) {
 	var err error
-	if ds, err = NewDriveCXDS(testFileName); err != nil {
+	if ds, err = NewCXDS(testFileName, 0644, nil); err != nil {
 		t.Fatal(err)
 	}
 	return
 }
 
 func TestNewCXDS(t *testing.T) {
-	// NewCXDS(filePath string) (ds *DriveCXDS, err error)
-
-	ds := testDriveDS(t)
+	ds := testDS(t)
 	defer ds.Close()
 }
 
-func TestCXDS_Get(t *testing.T) {
-	// Get(key cipher.SHA256) (val []byte, rc uint32, err error)
+func runTestCase(t *testing.T, testCase func(t *testing.T, ds data.CXDS)) {
+	ds := testDS(t)
+	defer os.Remove(testFileName)
+	defer ds.Close()
+	testCase(t, ds)
+}
 
-	t.Run("drive", func(t *testing.T) {
-		ds := testDriveDS(t)
-		defer os.Remove(testFileName)
-		defer ds.Close()
-		tests.CXDSGet(t, ds)
-	})
+func TestCXDS_Get(t *testing.T) {
+	runTestCase(t, tests.CXDSGet)
 }
 
 func TestCXDS_Set(t *testing.T) {
-	// Set(key cipher.SHA256, val []byte) (rc uint32, err error)
-
-	t.Run("drive", func(t *testing.T) {
-		ds := testDriveDS(t)
-		defer os.Remove(testFileName)
-		defer ds.Close()
-		tests.CXDSSet(t, ds)
-	})
+	runTestCase(t, tests.CXDSSet)
 }
 
 func TestCXDS_Inc(t *testing.T) {
-	// Inc(key cipher.SHA256) (rc uint32, err error)
+	runTestCase(t, tests.CXDSInc)
+}
 
-	t.Run("drive", func(t *testing.T) {
-		ds := testDriveDS(t)
-		defer os.Remove(testFileName)
-		defer ds.Close()
-		tests.CXDSInc(t, ds)
-	})
+func TestCXDS_Iterate(t *testing.T) {
+	runTestCase(t, tests.CXDSIterate)
+}
+
+func TestCXDS_IterateDel(t *testing.T) {
+	runTestCase(t, tests.CXDSIterateDel)
 }
 
 func TestCXDS_Close(t *testing.T) {
-	// Close() (err error)
-
-	t.Run("drive", func(t *testing.T) {
-		ds := testDriveDS(t)
-		defer os.Remove(testFileName)
-		defer ds.Close()
-		tests.CXDSClose(t, ds)
-	})
+	runTestCase(t, tests.CXDSClose)
 }

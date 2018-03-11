@@ -90,7 +90,6 @@ func addValues(
 
 // CXDSGet tests Get method of CXDS
 func CXDSGet(t *testing.T, ds data.CXDS) {
-	t.Helper()
 
 	key, value := testKeyValue("something")
 
@@ -165,7 +164,6 @@ func CXDSGet(t *testing.T, ds data.CXDS) {
 
 // CXDSSet tests Set method of CXDS
 func CXDSSet(t *testing.T, ds data.CXDS) {
-	t.Helper()
 
 	key, value := testKeyValue("something")
 
@@ -210,7 +208,6 @@ func CXDSSet(t *testing.T, ds data.CXDS) {
 
 // CXDSInc tests Inc method of CXDS
 func CXDSInc(t *testing.T, ds data.CXDS) {
-	t.Helper()
 
 	var key, value = testKeyValue("something")
 
@@ -291,7 +288,6 @@ func CXDSInc(t *testing.T, ds data.CXDS) {
 }
 
 func CXDSDel(t *testing.T, ds data.CXDS) {
-	t.Helper()
 
 	var key, value = testKeyValue("something")
 
@@ -323,7 +319,6 @@ func indexOf(keys []cipher.SHA256, key cipher.SHA256) (i int) {
 }
 
 func CXDSIterate(t *testing.T, ds data.CXDS) {
-	t.Helper()
 
 	t.Run("no objects", func(t *testing.T) {
 
@@ -351,7 +346,7 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 		t.Fatal(err)
 	}
 
-	t.Run("four", func(t *testing.T) {
+	t.Run("four objects", func(t *testing.T) {
 
 		var called int
 
@@ -383,14 +378,83 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 			t.Error(err)
 		}
 
-		if called >= len(keys) {
+		if called > len(keys) {
 			t.Errorf("wrong times called: expected %d, got %d",
 				len(keys), called)
 		}
 
 	})
 
-	// TODO (kostyarin): test Get/Set/Inc/Del inside the Iterate
+	t.Run("parallel get", func(t *testing.T) {
+
+		var (
+			called int
+			get    = make(chan struct{})
+			done   = make(chan struct{})
+		)
+
+		go func() {
+			defer close(done)
+			for i := 0; i < len(keys); i++ {
+
+				<-get
+
+				var val, rc, err = ds.Get(keys[i], 0)
+
+				if err != nil {
+					t.Error(err)
+				}
+
+				if (i == 0 && rc != 0) || (i != 0 && rc != 1) {
+					t.Error("wrong rc")
+				}
+
+				if bytes.Compare(val, values[i]) != 0 {
+					t.Error("wrong value")
+				}
+			}
+		}()
+
+		var err = ds.Iterate(
+			func(hash cipher.SHA256, rc uint32, val []byte) (err error) {
+
+				get <- struct{}{} // invoke parallel get
+
+				if called >= len(keys) {
+					t.Errorf("wrong times called: expected %d, got %d",
+						len(keys), called+1)
+					return data.ErrStopIteration
+				}
+
+				var index = indexOf(keys, hash)
+
+				if index < 0 {
+					t.Error("unexpected hash:", hash.Hex(), called)
+					return data.ErrStopIteration
+				}
+
+				if bytes.Compare(val, values[index]) != 0 {
+					t.Error("wrong value", called, index)
+				}
+
+				called++
+				return
+			})
+
+		if err != nil {
+			t.Error(err)
+		}
+
+		if called > len(keys) {
+			t.Errorf("wrong times called: expected %d, got %d",
+				len(keys), called)
+		}
+
+		<-done
+
+	})
+
+	// TODO (kostyarin): test Set/Inc/Del inside the Iterate
 
 	t.Run("stop", func(t *testing.T) {
 
@@ -422,7 +486,7 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 		var err = ds.Iterate(
 			func(cipher.SHA256, uint32, []byte) error {
 				called++
-				return data.ErrStopIteration
+				return testError
 			})
 
 		if err == nil {
@@ -440,27 +504,19 @@ func CXDSIterate(t *testing.T, ds data.CXDS) {
 }
 
 func CXDSIterateDel(t *testing.T, ds data.CXDS) {
-	t.Helper()
-
 	//
 }
 
 func CXDSAmount(t *testing.T, ds data.CXDS) {
-	t.Helper()
-
 	//
 }
 
 func CXDSVolume(t *testing.T, ds data.CXDS) {
-	t.Helper()
-
 	//
 }
 
 // CXDSClose tests Close method of CXDS
 func CXDSClose(t *testing.T, ds data.CXDS) {
-	t.Helper()
-
 	if err := ds.Close(); err != nil {
 		t.Error(err)
 	}
