@@ -24,26 +24,15 @@ func testDriveDS(t *testing.T) (ds data.CXDS) {
 	return
 }
 
-func TestNewDriveCXDS(t *testing.T) {
-	// NewDriveCXDS(filePath string) (ds *DriveCXDS, err error)
+func TestNewCXDS(t *testing.T) {
+	// NewCXDS(filePath string) (ds *DriveCXDS, err error)
 
 	ds := testDriveDS(t)
 	defer ds.Close()
 }
 
-func TestNewMemoryCXDS(t *testing.T) {
-	// NewMemoryCXDS() (ds *MemoryCXDS, err error)
-
-	ds := NewMemoryCXDS()
-	defer ds.Close()
-}
-
 func TestCXDS_Get(t *testing.T) {
 	// Get(key cipher.SHA256) (val []byte, rc uint32, err error)
-
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSGet(t, NewMemoryCXDS())
-	})
 
 	t.Run("drive", func(t *testing.T) {
 		ds := testDriveDS(t)
@@ -56,10 +45,6 @@ func TestCXDS_Get(t *testing.T) {
 func TestCXDS_Set(t *testing.T) {
 	// Set(key cipher.SHA256, val []byte) (rc uint32, err error)
 
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSSet(t, NewMemoryCXDS())
-	})
-
 	t.Run("drive", func(t *testing.T) {
 		ds := testDriveDS(t)
 		defer os.Remove(testFileName)
@@ -71,10 +56,6 @@ func TestCXDS_Set(t *testing.T) {
 func TestCXDS_Inc(t *testing.T) {
 	// Inc(key cipher.SHA256) (rc uint32, err error)
 
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSInc(t, NewMemoryCXDS())
-	})
-
 	t.Run("drive", func(t *testing.T) {
 		ds := testDriveDS(t)
 		defer os.Remove(testFileName)
@@ -85,10 +66,6 @@ func TestCXDS_Inc(t *testing.T) {
 
 func TestCXDS_Close(t *testing.T) {
 	// Close() (err error)
-
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSClose(t, NewMemoryCXDS())
-	})
 
 	t.Run("drive", func(t *testing.T) {
 		ds := testDriveDS(t)

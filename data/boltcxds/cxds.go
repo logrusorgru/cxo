@@ -14,27 +14,13 @@ import (
 	"errors"
 
 	"github.com/skycoin/skycoin/src/cipher"
-)
-
-// the contants used to dump and load
-const (
-	// Version of the CXDS data representation
-	Version int = 3 // previous is 2
-	// Engine is DB engine
-	Engine = "BoltDB"
+	"github.com/skycoin/skycoin/src/cipher/encoder"
 )
 
 // comon errors
 var (
-	ErrEmptyValue = errors.New("empty value")
-
+	ErrEmptyValue       = errors.New("empty value")
 	ErrWrongValueLength = errors.New("wrong value length")
-
-	ErrMissingMetaInfo = errors.New("missing meta information")
-
-	ErrMissingVersion = errors.New("missing version in meta")
-	ErrOldVersion     = errors.New("db file of old version")      // cxodbfix
-	ErrNewVersion     = errors.New("db file newer then this CXO") // go get
 )
 
 //
@@ -56,29 +42,21 @@ func getHash(val []byte) (key cipher.SHA256) {
 // meta info
 
 type metaInfo struct {
-	Engine  string // engine is allways "BoltDB"
-	Version uint32 // data representation
-	API     uint32 // API version
-
 	AmountAll  uint32 // amount of all objects
 	AmountUsed uint32 // amount of used objects (rc > 0)
 
 	VolumeAll  uint32 // volume of all objets
 	VolumeUsed uint32 // volume of used objects (rc > 0)
+
+	IsSafeClosed bool // safe closed flag
 }
 
-func versionBytes() []byte {
-	return encodeUint32(uint32(Version))
+func (m *metaInfo) encode() []byte {
+	return encoder.Serialize(m)
 }
 
-func encodeUint32(u uint32) (ub []byte) {
-	ub = make([]byte, 4)
-	binary.BigEndian.PutUint32(ub, uint32(Version))
-	return
-}
-
-func decodeUint32(ub []byte) uint32 {
-	return binary.BigEndian.Uint32(ub)
+func (m *metaInfo) decode(v []byte) (err error) {
+	return encoder.DeserializeRaw(v, m)
 }
 
 // increment slice

@@ -1,7 +1,7 @@
 package cxds
 
 import (
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -20,8 +20,55 @@ var (
 	infoKey    = infoBucket  // information key
 )
 
+// pasue iterators and resume them later
+type pauseResume struct {
+	p chan struct{} // not buffered (pause)
+	r chan struct{} // not buffered (resume)
+}
+
+func newPauseResume() (pr *pauseResume) {
+	pr = new(pauseResume)
+	pr.p = make(chan struct{})
+	pr.r = make(chan struct{})
+	return
+}
+
+// force an iterator to pause
+func (p *pauseResume) pause() {
+	p.p <- struct{}{}
+}
+
+// resume a paused iterator
+func (p *pauseResume) resume() {
+	<-p.r
+}
+
+// chek the need to pause
+func (p *pauseResume) needPause() (need bool) {
+	select {
+	case <-p.p:
+		return true
+	default:
+	}
+	return // false
+}
+
+// waiting for resume
+func (p *pauseResume) waitResume() {
+	p.r <- struct{}{}
+}
+
+// release if paused
+func (p *pauseResume) release() {
+	select {
+	case <-p.p:
+		<-p.r
+	default:
+	}
+}
+
 type driveCXDS struct {
-	mx sync.Mutex // lock amounts and volumes
+	mx sync.Mutex // lock amounts, volumes, etc
 
 	amountAll  int // amount of all objects
 	amountUsed int // amount of used objects
@@ -29,13 +76,96 @@ type driveCXDS struct {
 	volumeAll  int // volume of all objects
 	volumeUsed int // volume of used objects
 
+	isSafeClosed bool // last time closing status
+
+	// iterators must not lock DB and must allow
+	// concurent Get/Set/Inc and Del calls; the
+	// maps below contains only iterators that
+	// have started their transactions
+	ix      sync.Mutex                // lock iterators
+	roIters map[*pauseResume]struct{} // read-only iterators
+	rwIters map[*pauseResume]struct{} // read-write iterators
+
+	// underlying DB
 	b *bolt.DB
+}
+
+func (d *driveCXDS) addReadOnlyIterator(pr *pauseResume) {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	d.roIters[pr] = struct{}{}
+}
+
+func (d *driveCXDS) delReadOnlyIterator(pr *pauseResume) {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	delete(d.roIters, pr)
+}
+
+func (d *driveCXDS) addReadWriteIterator(pr *pauseResume) {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	d.rwIters[pr] = struct{}{}
+}
+
+func (d *driveCXDS) delReadWriteIterator(pr *pauseResume) {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	delete(d.rwIters, pr)
+}
+
+func (d *driveCXDS) pauseReadWriteIterators() {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	for iter := range d.rwIters {
+		iter.pause()
+	}
+}
+
+func (d *driveCXDS) resumeReadWriteIterators() {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	for iter := range d.rwIters {
+		iter.pause()
+	}
+}
+
+func (d *driveCXDS) pauseAllIterators() {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	for iter := range d.roIters {
+		iter.pause()
+	}
+
+	for iter := range d.rwIters {
+		iter.pause()
+	}
+}
+
+func (d *driveCXDS) resumeAllIterators() {
+	d.ix.Lock()
+	defer d.ix.Unlock()
+
+	for iter := range d.roIters {
+		iter.resume()
+	}
+
+	for iter := range d.rwIters {
+		iter.resume()
+	}
 }
 
 // NewCXDS opens existing CXDS-database
 // or creates new by given file name. Underlying
 // database is boltdb (github.com/boltdb/bolt).
-// E.g. this stores data on disk
+// E.g. this stores data in filesystem
 func NewCXDS(
 	fileName string, //    : DB file path
 	mode os.FileMode, //   : file mode
@@ -74,56 +204,23 @@ func NewCXDS(
 
 	}()
 
-	var saveStat bool
+	var dr = &driveCXDS{b: b} // wrap
 
 	err = b.Update(func(tx *bolt.Tx) (err error) {
 
 		// first of all, take a look the info bucket
-		var info = tx.Bucket(infoBucket)
 
-		if info == nil {
+		// if the file has not been created, then
+		// version of this DB file seems outdated
+		if info := tx.Bucket(infoBucket); info == nil {
 
-			// if the file has not been created, then
-			// this DB file seems outdated (version 0)
 			if created == false {
-				return ErrMissingMetaInfo // report
+				return errors.New(
+					"missing info-bucket (may be old version of file)")
 			}
 
-			// create the bucket and put meta information
 			if info, err = tx.CreateBucket(infoBucket); err != nil {
 				return
-			}
-
-			// put meta info
-
-			var meta metaInfo
-
-			meta.Version = Version
-			meta.API = data.CXDSAPIVersion
-
-			if err = info.Put(infoBucket, versionBytes()); err != nil {
-				return
-			}
-
-			// put stat
-
-			saveStat = true // save zeroes
-
-		} else {
-
-			// check out the version
-
-			var vb []byte
-			if vb = info.Get(versionKey); len(vb) == 0 {
-				return ErrMissingVersion
-			}
-
-			switch vers := int(binary.BigEndian.Uint32(vb)); {
-			case vers == Version: // ok
-			case vers < Version:
-				return ErrOldVersion
-			case vers > Version:
-				return ErrNewVersion
 			}
 
 		}
@@ -137,18 +234,12 @@ func NewCXDS(
 		return
 	}
 
-	var dr = &driveCXDS{b: b} // wrap
-
-	// stat
-
-	if saveStat == true {
-		err = dr.saveStat()
+	if created == true {
+		dr.isSafeClosed = true // ok for fresh DB
 	} else {
-		err = dr.loadStat()
-	}
-
-	if err != nil {
-		return
+		if err = dr.loadStat(); err != nil {
+			return
+		}
 	}
 
 	ds = dr
@@ -160,49 +251,34 @@ func (d *driveCXDS) loadStat() (err error) {
 	d.mx.Lock()
 	defer d.mx.Unlock()
 
-	return d.b.View(func(tx *bolt.Tx) (err error) {
+	return d.b.Update(func(tx *bolt.Tx) (err error) {
 
 		var (
-			info = tx.Bucket(metaBucket)
-			val  []byte
+			meta metaInfo
+
+			info  = tx.Bucket(infoBucket)
+			infob = info.Get(infoKey)
 		)
 
-		// amount all
-
-		if val = info.Get(amountAllKey); len(val) != 4 {
-			return ErrWrongValueLength
+		if len(infob) == 0 {
+			return errors.New("missing meta info data")
 		}
 
-		d.amountAll = int(decodeUint32(val))
-
-		// amount used
-
-		if val = info.Get(amountUsedKey); len(val) != 4 {
-			return ErrWrongValueLength
+		if err = meta.decode(infob); err != nil {
+			return fmt.Errorf("error decoding meta info: %v", err)
 		}
 
-		d.amountUsed = int(decodeUint32(val))
+		d.isSafeClosed = meta.IsSafeClosed
+		d.amountAll = int(meta.AmountAll)
+		d.amountUsed = int(meta.AmountUsed)
+		d.volumeAll = int(meta.VolumeAll)
+		d.volumeUsed = int(meta.VolumeUsed)
 
-		// volume all
+		// and clear the IsSafeClosed flag
 
-		if val = info.Get(volumeAllKey); len(val) != 4 {
-			return ErrWrongValueLength
-		}
-
-		d.volumeAll = int(decodeUint32(val))
-
-		// volume used
-
-		if val = info.Get(volumeUsedKey); len(val) != 4 {
-			return ErrWrongValueLength
-		}
-
-		d.volumeUsed = int(decodeUint32(val))
-
-		return
-
+		meta.IsSafeClosed = false
+		return info.Put(infoKey, meta.encode())
 	})
-
 }
 
 func (d *driveCXDS) saveStat() (err error) {
@@ -210,39 +286,17 @@ func (d *driveCXDS) saveStat() (err error) {
 	d.mx.Lock()
 	defer d.mx.Unlock()
 
+	var meta metaInfo
+
+	meta.AmountAll = uint32(d.amountAll)
+	meta.AmountUsed = uint32(d.amountUsed)
+	meta.VolumeAll = uint32(d.volumeAll)
+	meta.VolumeUsed = uint32(d.volumeUsed)
+	meta.IsSafeClosed = true
+
 	return d.b.Update(func(tx *bolt.Tx) (err error) {
-
-		var info = tx.Bucket(metaBucket)
-
-		// amount all
-
-		err = info.Put(amountAllKey, encodeUint32(uint32(d.amountAll)))
-
-		if err != nil {
-			return
-		}
-
-		// amount used
-
-		err = info.Put(amountUsedKey, encodeUint32(uint32(d.amountUsed)))
-
-		if err != nil {
-			return
-		}
-
-		// volume all
-
-		err = info.Put(volumeAllKey, encodeUint32(uint32(d.volumeAll)))
-
-		if err != nil {
-			return
-		}
-
-		// volume used
-
-		err = info.Put(volumeUsedKey, encodeUint32(uint32(d.volumeUsed)))
-		return
-
+		var info = tx.Bucket(infoBucket)
+		return info.Put(infoKey, meta.encode())
 	})
 
 }
@@ -253,7 +307,7 @@ func (d *driveCXDS) av(rc, nrc uint32, vol int) {
 	defer d.mx.Unlock()
 
 	if rc == 0 { // was dead
-		if nrc > 0 { // an be resurrected
+		if nrc > 0 { // and be resurrected
 			d.amountUsed++
 			d.volumeUsed += vol
 		}
@@ -307,6 +361,24 @@ func (d *driveCXDS) incr(
 	return
 }
 
+// priority View (pause iterators and perform the View transaction)
+func (d *driveCXDS) pView(txFunc func(*bolt.Tx) error) (err error) {
+	d.pauseReadWriteIterators()
+	defer d.resumeReadWriteIterators()
+
+	return d.b.View(txFunc)
+}
+
+// priority Update (puse all iterators and perform Update transaction)
+func (d *driveCXDS) pUpdate(txFunc func(*bolt.Tx) error) (err error) {
+	d.pauseAllIterators()
+	defer d.resumeAllIterators()
+
+	return d.b.Update(txFunc)
+}
+
+//
+
 // Get value by key changing or
 // leaving as is references counter
 func (d *driveCXDS) Get(
@@ -338,9 +410,9 @@ func (d *driveCXDS) Get(
 	}
 
 	if inc == 0 {
-		err = d.b.View(tx) // lookup only
+		err = d.pView(tx) // lookup only
 	} else {
-		err = d.b.Update(tx) // some changes
+		err = d.pUpdate(tx) // some changes
 	}
 
 	return
@@ -377,7 +449,7 @@ func (d *driveCXDS) Set(
 		return
 	}
 
-	err = d.b.Update(func(tx *bolt.Tx) (err error) {
+	err = d.pUpdate(func(tx *bolt.Tx) (err error) {
 
 		var (
 			o   = tx.Bucket(objsBucket)
@@ -431,9 +503,9 @@ func (d *driveCXDS) Inc(
 	}
 
 	if inc == 0 {
-		err = d.b.View(tx) // lookup only
+		err = d.pView(tx) // lookup only
 	} else {
-		err = d.b.Update(tx) // changes required
+		err = d.pUpdate(tx) // changes required
 	}
 
 	return
@@ -460,7 +532,7 @@ func (d *driveCXDS) Del(
 	err error,
 ) {
 
-	err = d.b.Update(func(tx *bolt.Tx) (err error) {
+	err = d.pUpdate(func(tx *bolt.Tx) (err error) {
 
 		var (
 			o   = tx.Bucket(objsBucket)
@@ -482,32 +554,63 @@ func (d *driveCXDS) Del(
 	return
 }
 
-// Iterate all keys
+// Iterate all keys read-only without lock.
 func (d *driveCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 
-	err = d.b.View(func(tx *bolt.Tx) (err error) {
+	var (
+		pr = newPauseResume()
 
-		var (
-			key cipher.SHA256
-			c   = tx.Bucket(objsBucket).Cursor()
-		)
+		since cipher.SHA256 // object to start from (zero)
+		done  bool          //
+	)
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+	defer pr.release() // release the pauseResume if pause needed
 
-			copy(key[:], k)
+	d.addReadOnlyIterator(pr)
+	defer d.delReadOnlyIterator(pr)
 
-			if err = iterateFunc(key, getRefsCount(v), v[4:]); err != nil {
-				if err == data.ErrStopIteration {
-					err = nil
+	for {
+
+		err = d.b.View(func(tx *bolt.Tx) (err error) {
+
+			var c = tx.Bucket(objsBucket).Cursor()
+
+			for k, v := c.Seek(since[:]); k != nil; k, v = c.Next() {
+
+				copy(since[:], k)
+
+				if pr.needPause() == true {
+					return // stop the transaction and wait for resume
 				}
-				return
+
+				err = iterateFunc(since, getRefsCount(v), v[4:])
+
+				if err != nil {
+					if err == data.ErrStopIteration {
+						err = nil
+					}
+					return
+				}
+
 			}
 
+			done = true // done
+
+			return
+
+		}) // func(tx *bolt.Tx) error
+
+		if err != nil {
+			return // break by the error
 		}
 
-		return
+		if done == false {
+			pr.waitResume() // continue the for loop
+		} else {
+			break // break the for loop (the done is true)
+		}
 
-	})
+	} // for
 
 	return
 }
@@ -519,45 +622,74 @@ func (d *driveCXDS) IterateDel(
 	err error,
 ) {
 
-	err = d.b.Update(func(tx *bolt.Tx) (err error) {
+	var (
+		pr = newPauseResume()
 
-		var (
-			key cipher.SHA256
-			rc  uint32
-			c   = tx.Bucket(objsBucket).Cursor()
-			del bool
-		)
+		since cipher.SHA256 // object to start from (zero)
+		done  bool          //
+	)
 
-		// Seek instead of the Next, because we allows modifications
-		// and the BoltDB requires Seek after mutating
+	defer pr.release() // release the pauseResume if pause needed
 
-		for k, v := c.First(); k != nil; k, v = c.Seek(key[:]) {
+	d.addReadWriteIterator(pr)
+	defer d.delReadWriteIterator(pr)
 
-			copy(key[:], k)
+	for {
 
-			rc = getRefsCount(v)
+		err = d.b.Update(func(tx *bolt.Tx) (err error) {
 
-			if del, err = iterateFunc(key, rc, v[4:]); err != nil {
-				if err == data.ErrStopIteration {
-					err = nil
-				}
-				return
-			}
+			var (
+				rc  uint32
+				c   = tx.Bucket(objsBucket).Cursor()
+				del bool
+			)
 
-			if del == true {
-				if err = c.Delete(); err != nil {
+			// Seek instead of the Next, because we allows modifications
+			// and the BoltDB requires Seek after mutating
+
+			for k, v := c.Seek(since[:]); k != nil; k, v = c.Seek(since[:]) {
+
+				copy(since[:], k)
+
+				rc = getRefsCount(v)
+
+				if del, err = iterateFunc(since, rc, v[4:]); err != nil {
+					if err == data.ErrStopIteration {
+						err = nil
+					}
 					return
 				}
 
-				d.del(rc, len(v)-4) // stat
+				if del == true {
+					if err = c.Delete(); err != nil {
+						return
+					}
+
+					d.del(rc, len(v)-4) // stat
+				}
+
+				incSlice(since[:]) // next
+
+				if pr.needPause() == true {
+					return // break transaction
+				}
 			}
 
-			incSlice(key[:]) // next
+			done = true
+			return
+		}) // func(tx *bolt.Tx) error
+
+		if err != nil {
+			return // an error
 		}
 
-		return
+		if done == false {
+			pr.waitResume() // wait for resume
+		} else {
+			break // break for loop (done)
+		}
 
-	})
+	} // for
 
 	return
 }
@@ -578,15 +710,32 @@ func (d *driveCXDS) Volume() (all, used int) {
 	return d.volumeAll, d.volumeUsed
 }
 
-// Version returns API
-func (*driveCXDS) Version() int {
-	return Version
+// IsSafeClosed returns true if the DB was
+// closed successfully last time
+func (d *driveCXDS) IsSafeClosed() bool {
+	return d.isSafeClosed
+}
+
+func isNotOpen(err error) bool {
+	return err == bolt.ErrDatabaseNotOpen
 }
 
 // Close DB
 func (d *driveCXDS) Close() (err error) {
 
-	if err = d.saveStat(); err != nil && err != bolt.ErrDatabaseNotOpen {
+	if err = d.b.Sync(); err != nil {
+		if isNotOpen(err) == true {
+			return
+		}
+		d.b.Close() // drop error
+		return
+	}
+
+	// save stat (amounts and volumes) and set safe-closing flag to true
+	if err = d.saveStat(); err != nil {
+		if isNotOpen(err) == true {
+			return
+		}
 		d.b.Close() // drop error
 		return
 	}
