@@ -17,6 +17,11 @@ import (
 	"github.com/skycoin/skycoin/src/cipher/encoder"
 )
 
+// DefaultDBFileName is default name of DB file. The
+// name used by the node package. The name means:
+// CXDS, CXO API version is 5, underlying db is BoltDB.
+const DefaultDBFileName = "cxds5.bolt"
+
 // comon errors
 var (
 	ErrEmptyValue       = errors.New("empty value")

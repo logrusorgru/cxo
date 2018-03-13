@@ -1,98 +1,31 @@
 package idxdb
 
 import (
-	"os"
 	"testing"
 
 	"github.com/skycoin/cxo/data/tests"
 )
 
 func TestRoots_Ascend(t *testing.T) {
-	// Ascend(IterateRootsFunc) error
-
-	// TODO (kostyarin): memeory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.RootsAscend(t, idx)
-	})
-
+	runTestCase(t, tests.RootsAscend)
 }
 
 func TestRoots_Descend(t *testing.T) {
-	// Descend(IterateRootsFunc) error
-
-	// TODO (kostyarin): memeory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.RootsDescend(t, idx)
-	})
-
+	runTestCase(t, tests.RootsDescend)
 }
 
 func TestRoots_Set(t *testing.T) {
-	// Set(*Root) error
-
-	// TODO (kostyarin): memeory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.RootsSet(t, idx)
-	})
-
+	runTestCase(t, tests.RootsSet)
 }
 
 func TestRoots_Del(t *testing.T) {
-	// Del(uint64) error
-
-	// TODO (kostyarin): memeory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.RootsDel(t, idx)
-	})
-
+	runTestCase(t, tests.RootsDel)
 }
 
 func TestRoots_Get(t *testing.T) {
-	// Get(uint64) (*Root, error)
-
-	// TODO (kostyarin): memeory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.RootsGet(t, idx)
-	})
-
+	runTestCase(t, tests.RootsGet)
 }
 
 func TestRoots_Has(t *testing.T) {
-	// Has(uint64) bool
-
-	// TODO (kostyarin): memeory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.RootsHas(t, idx)
-	})
-
+	runTestCase(t, tests.RootsHas)
 }

@@ -4,9 +4,6 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
-// CXDSAPIVersion is version of the CXDS interface
-const CXDSAPIVersion = 5
-
 // An IterateObjectsFunc used to iterate over objects
 // of the CXDS. All arguments are read only and must
 // not be modified.

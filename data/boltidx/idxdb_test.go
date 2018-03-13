@@ -1,7 +1,6 @@
 package idxdb
 
 import (
-	"errors"
 	"os"
 	"testing"
 
@@ -11,33 +10,26 @@ import (
 
 const testFileName string = "test.db.goignore"
 
-var errTestError = errors.New("test error")
-
-func testNewDriveIdxDB(t *testing.T) (idx data.IdxDB) {
+func testNewIdxDB(t *testing.T) (idx data.IdxDB) {
 	var err error
-	if idx, err = NewDriveIdxDB(testFileName); err != nil {
+	if idx, err = NewIdxDB(testFileName); err != nil {
 		t.Fatal(err)
 	}
 	return
 }
 
-func TestIdxDB_Tx(t *testing.T) {
-	// Tx(func(Tx) error) error
+func runTestCase(t *testing.T, testCase func(t *testing.T, idx data.IdxDB)) {
+	idx := testNewIdxDB(t)
+	defer os.Remove(testFileName)
+	defer idx.Close()
 
-	// TODO (kostyarin):
+	testCase(t, idx)
+}
+
+func TestIdxDB_Tx(t *testing.T) {
+	// TODO (kostyarin): test it
 }
 
 func TestIdxDB_Close(t *testing.T) {
-	// Close() error
-
-	// TODO (kostyarin): memory
-
-	t.Run("drive", func(t *testing.T) {
-		idx := testNewDriveIdxDB(t)
-		defer os.Remove(testFileName)
-		defer idx.Close()
-
-		tests.IdxDBClose(t, idx)
-	})
-
+	runTestCase(t, tests.IdxDBClose)
 }

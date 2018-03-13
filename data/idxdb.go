@@ -4,9 +4,6 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
-// IdxDBAPIVersion is version of IdxDB related interfaces
-const IdxDBAPIVersion = 5
-
 // An IterateFeedsFunc represents function for
 // iterating over all feeds IdxDB contains
 type IterateFeedsFunc func(cipher.PubKey) error
@@ -59,7 +56,7 @@ type Heads interface {
 	// doesn't exist
 	Del(nonce uint64) (err error)
 	// Has returns true if a head with given
-	// nonce exits in the CXDS
+	// nonce exits in the DB
 	Has(nonce uint64) (ok bool, err error)
 	// Iterate over all heads
 	Iterate(iterateFunc IterateHeadsFunc) (err error)

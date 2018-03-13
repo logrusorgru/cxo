@@ -12,24 +12,26 @@ import (
 	"github.com/skycoin/cxo/data"
 )
 
-var (
-	feedsBucket = []byte("f")       // feeds
-	metaBucket  = []byte("m")       // meta information
-	versionKey  = []byte("version") // encoded version in the meta bucket
-)
+var feedsBucket = []byte("f") // feeds
 
 type driveDB struct {
 	b *bolt.DB
 }
 
-// NewDriveIdxDB creates data.IdxDB instance that
-// keeps its data on drive
-func NewDriveIdxDB(fileName string) (idx data.IdxDB, err error) {
+// NewIdxDB creates data.IdxDB instance based
+// on boltdb that keeps data in filesystem
+func NewIdxDB(fileName string) (idx data.IdxDB, err error) {
 
 	var created bool // true if db file has been created
 
 	_, err = os.Stat(fileName)
 	created = os.IsNotExist(err) // set the created var
+
+	defer func() {
+		if created == true && err != nil {
+			os.Remove(fileName)
+		}
+	}()
 
 	var b *bolt.DB
 
@@ -42,47 +44,6 @@ func NewDriveIdxDB(fileName string) (idx data.IdxDB, err error) {
 	}
 
 	err = b.Update(func(tx *bolt.Tx) (err error) {
-
-		// first of all, take a look the meta bucket
-		var info = tx.Bucket(metaBucket)
-
-		if info == nil {
-
-			// if the file has not been created, then
-			// this DB file seems outdated (version 0)
-			if created == false {
-				return ErrMissingMetaInfo // report
-			}
-
-			// create the bucket and put meta information
-			if info, err = tx.CreateBucket(metaBucket); err != nil {
-				return
-			}
-
-			// put version
-			if err = info.Put(versionKey, versionBytes()); err != nil {
-				return
-			}
-
-		} else {
-
-			// check out the version
-
-			var vb []byte
-			if vb = info.Get(versionKey); len(vb) == 0 {
-				return ErrMissingVersion
-			}
-
-			switch vers := int(binary.BigEndian.Uint32(vb)); {
-			case vers == Version: // ok
-			case vers < Version:
-				return ErrOldVersion
-			case vers > Version:
-				return ErrNewVersion
-			}
-
-		}
-
 		_, err = tx.CreateBucketIfNotExists(feedsBucket)
 		return
 	})

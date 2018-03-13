@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestNewDriveIdxDB(t *testing.T) {
+func TestNewIdxDB(t *testing.T) {
 
 	t.Run("cant open", func(t *testing.T) {
 		defer os.Remove(testFileName)
@@ -22,7 +22,7 @@ func TestNewDriveIdxDB(t *testing.T) {
 			return
 		}
 
-		if idx, err := NewDriveIdxDB(testFileName); err == nil {
+		if idx, err := NewIdxDB(testFileName); err == nil {
 			t.Error("missing error")
 			idx.Close()
 		}
@@ -30,7 +30,7 @@ func TestNewDriveIdxDB(t *testing.T) {
 
 	// It's impossible to test
 
-	// t.Run("cant create bucket", func(t *testing.T) {
+	// t.Run("can't create bucket", func(t *testing.T) {
 	// })
 
 }
