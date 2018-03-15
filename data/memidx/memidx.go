@@ -196,45 +196,83 @@ func (f *feeds) Len() (length int) {
 type feed struct {
 	del bool // delete on merge (has meaning only in transaction)
 
-	// heads ->-> roots
+	// the t is nil for stable storage
+
+	s *heads // link to head of stable storeage
+	t *heads // heads of the transaction
 }
 
 type heads struct {
 	del bool // delete on merge (has meaning only in transaction)
 
-	// roots -> [...]
+	s *roots // of stable storage
+	t *roots // of the transaction
+}
+
+// type IterateHeadsFunc func(nonce uint64) (err error)
+
+func (h *heads) Roots(nonce uint64) (rs data.Roots, err error) {
+	//
+}
+
+func (h *heads) Add(nonce uint64) (rs data.Roots, err error) {
+	//
+}
+
+func (h *heads) Del(nonce uint64) (err error) {
+	//
+}
+
+func (h *heads) Has(nonce uint64) (ok bool, err error) {
+	//
+}
+
+func (h *heads) Iterate(iterateFunc data.IterateHeadsFunc) (err error) {
+	//
+}
+
+func (h *heads) Len() (length int) {
+	//
 }
 
 type roots struct {
 	del bool // delete on merge (has meaning only in transaction)
 
-	// the roots
+	s []*root // of stable
+	t []*root // of transaction
 }
 
-//
-//
-//
-//
+// type IterateRootsFunc func(r *Root) (err error)
 
-type IterateHeadsFunc func(nonce uint64) (err error)
-
-type Heads interface {
-	Roots(nonce uint64) (rs Roots, err error)
-	Add(nonce uint64) (rs Roots, err error)
-	Del(nonce uint64) (err error)
-	Has(nonce uint64) (ok bool, err error)
-	Iterate(iterateFunc IterateHeadsFunc) (err error)
-	Len() (length int)
+func (r *roots) Ascend(iterateFunc data.IterateRootsFunc) (err error) {
+	//
 }
 
-type IterateRootsFunc func(r *Root) (err error)
+func (r *roots) Descend(iterateFunc data.IterateRootsFunc) (err error) {
+	//
+}
 
-type Roots interface {
-	Ascend(iterateFunc IterateRootsFunc) (err error)
-	Descend(iterateFunc IterateRootsFunc) (err error)
-	Set(r *Root) (err error)
-	Del(seq uint64) (err error)
-	Get(seq uint64) (r *Root, err error)
-	Has(seq uint64) (ok bool, err error)
-	Len() (length int)
+func (r *roots) Set(dr *data.Root) (err error) {
+	//
+}
+
+func (r *roots) Del(seq uint64) (err error) {
+	//
+}
+
+func (r *roots) Get(seq uint64) (dr *data.Root, err error) {
+	//
+}
+
+func (r *roots) Has(seq uint64) (ok bool, err error) {
+	//
+}
+
+func (r *roots) Len() (length int) {
+	//
+}
+
+type root struct {
+	del bool
+	r   *data.Root
 }
