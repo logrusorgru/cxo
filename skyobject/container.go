@@ -19,7 +19,7 @@ func init() {
 // A Container represents
 type Container struct {
 	Cache // cache of the Container
-	Index // memory mapped IdxDB
+	Index // memory mapped IdxDB (lates Roots only)
 
 	db *data.DB // database
 
