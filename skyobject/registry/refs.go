@@ -3,7 +3,7 @@ package registry
 import (
 	"fmt"
 
-	"github.com/disiqueira/gotree"
+	"github.com/DiSiqueira/GoTree"
 
 	"github.com/skycoin/skycoin/src/cipher"
 	"github.com/skycoin/skycoin/src/cipher/encoder"

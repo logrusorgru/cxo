@@ -142,7 +142,7 @@ func (c *Container) Split(
 // to given io.Writer. For example (see also the Split method)
 //
 //     var (
-//         file File               // see dosc of the Split method
+//         file File               // see docs of the Split method
 //         root registry.Root      //
 //         c *skyobject.Container  //
 //     )

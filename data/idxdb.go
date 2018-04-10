@@ -11,11 +11,11 @@ type IterateFeedsFunc func(cipher.PubKey) error
 // A Feeds represents bucket of feeds
 type Feeds interface {
 	// Add feed. Adding a feed twice or
-	// more times does nothing
+	// more times does nothing.
 	Add(pk cipher.PubKey) (err error)
 	// Del feed with all heads and Root objects
 	// unconditionally. If feed doesn't exist
-	// then the Del returns ErrNoSuchFeed
+	// then the Del returns ErrNoSuchFeed.
 	Del(pk cipher.PubKey) (err error)
 
 	// Iterate all feeds. Use ErrStopIteration to
@@ -48,12 +48,12 @@ type Heads interface {
 	Roots(nonce uint64) (rs Roots, err error)
 	// Add new head with given nonce.
 	// If a head with given nonce already
-	// exists, then this method does nothing
+	// exists, then this method does nothing.
 	Add(nonce uint64) (rs Roots, err error)
 	// Del deletes head with given nonce and
 	// all its Root objects. The method returns
 	// ErrNoSuchHead if a head with given nonce
-	// doesn't exist
+	// doesn't exist.
 	Del(nonce uint64) (err error)
 	// Has returns true if a head with given
 	// nonce exits in the DB
@@ -93,11 +93,11 @@ type Roots interface {
 	// given Root in any case. E.g. if Root exists
 	// then fields Create and Access of given Root
 	// will be changed to saved. But Access field
-	// of saved Root will be changed to now
+	// of saved Root will be changed to now.
 	Set(r *Root) (err error)
 
 	// Del Root by seq number. The Del never returns
-	// ErrNotFound if Root doesn't exist
+	// ErrNotFound if Root doesn't exist.
 	Del(seq uint64) (err error)
 
 	// Get Root by seq number
@@ -118,6 +118,6 @@ type Roots interface {
 // ErrNoSuchFeed, ErrNoSuchHead, and
 // ErrStopIteration, and from this package.
 type IdxDB interface {
-	Tx(func(Feeds) error) error // transaction
+	Tx(func(Feeds) error) error // start transaction
 	Close() error               // close the IdxDB
 }
