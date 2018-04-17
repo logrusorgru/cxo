@@ -1,54 +1,53 @@
 package sqliteidx
 
 import (
+	"database/sql"
 	"time"
-
-	"github.com/go-xorm/xorm"
 )
 
 type feed struct {
-	ID int64 `xorm:"id"`
+	ID int64
 
-	PubKey string `xorm:"pubkey"`
+	PubKey string
 
-	CreatedAt time.Time `xorm:"created 'created_at'"`
-	UpdatedAt time.Time `xorm:"updated 'updated_at'"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type head struct {
-	ID int64 `xorm:"id"`
+	ID int64
 
-	Nonce  uint64 `xorm:"nonce"`
-	FeedID int64  `xorm:"feed_id"`
+	Nonce  uint64
+	FeedID int64
 
-	CreatedAt time.Time `xorm:"created 'created_at'"`
-	UpdatedAt time.Time `xorm:"updated 'updated_at'"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type root struct {
-	ID int64 `xorm:"id"`
+	ID int64
 
-	Seq        uint64    `xorm:"seq"`
-	HeadID     int64     `xorm:"head_id"`
-	AccessTime time.Time `xorm:"access_time"`
-	Timestamp  time.Time `xorm:"timestamp"`
-	Prev       string    `xorm:"prev"`
-	Hash       string    `xorm:"hash"`
-	Sig        string    `xorm:"sig"`
+	Seq        uint64
+	HeadID     int64
+	AccessTime time.Time
+	Timestamp  time.Time
+	Prev       string // can be null
+	Hash       string
+	Sig        string
 
-	CreatedAt time.Time `xorm:"created 'created_at'"`
-	UpdatedAt time.Time `xorm:"updated 'updated_at'"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-func initializeDatabase(sql *xorm.Engine) (err error) {
+func initializeDatabase(sq *sql.DB) (err error) {
 
-	if err = sql.Ping(); err != nil {
+	if err = sq.Ping(); err != nil {
 		return
 	}
 
 	const enableForeignKeys = `PRAGMA foreign_keys = ON;`
 
-	if _, err = sql.Exec(enableForeignKeys); err != nil {
+	if _, err = sq.Exec(enableForeignKeys); err != nil {
 		return
 	}
 
@@ -74,7 +73,7 @@ func initializeDatabase(sql *xorm.Engine) (err error) {
 	const feedsPubKeyUniqueIndex = `CREATE UNIQUE INDEX
         idx_feed_pubkey ON feed (pubkey);`
 
-	err = createTableIfNotExist(sql,
+	err = createTableIfNotExist(sq,
 		"feed",
 		feedsTable,
 		feedsPubKeyUniqueIndex)
@@ -111,7 +110,7 @@ func initializeDatabase(sql *xorm.Engine) (err error) {
 	const headsFeedIdIndex = `CREATE INDEX
         idx_head_feed_id ON head (feed_id);`
 
-	err = createTableIfNotExist(sql,
+	err = createTableIfNotExist(sq,
 		"head",
 		headsTable,
 		headsNonceUniqueIndex,
@@ -159,7 +158,7 @@ func initializeDatabase(sql *xorm.Engine) (err error) {
 	const rootsHeadIdIndex = `CREATE INDEX
         idx_root_head_id ON head (id);`
 
-	err = createTableIfNotExist(sql,
+	err = createTableIfNotExist(sq,
 		"root",
 		rootsTable,
 		rootsSeqUniqueIndex,
@@ -168,7 +167,7 @@ func initializeDatabase(sql *xorm.Engine) (err error) {
 }
 
 func createTableIfNotExist(
-	sql *xorm.Engine, //  :
+	sq *sql.DB, //        :
 	name string, //       :
 	create string, //     :
 	indices ...string, // :
@@ -178,7 +177,7 @@ func createTableIfNotExist(
 
 	var exist bool
 
-	if exist, err = sql.IsTableExist(name); err != nil {
+	if exist, err = isTableExist(sq, name); err != nil {
 		return
 	}
 
@@ -196,5 +195,15 @@ func createTableIfNotExist(
 
 	}
 
+	return
+}
+
+func isTableExist(sq *sql.DB, name string) (exist bool, err error) {
+
+	const sel = `SELECT COUNT(*) FROM sqlite_master
+    WHERE type = 'table'
+    AND name = ?;`
+
+	err = sq.QueryRow(sel, name).Scan(&exist)
 	return
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"database/sql"
 	_ "github.com/mattn/go-sqlite3" // SQLite 3 driver
@@ -79,13 +80,30 @@ type feeds struct {
 }
 
 func (f *feeds) Add(pk cipher.PubKey) (err error) {
-	_, err = f.tx.Exec(`INSERT OR IGNORE INTO feed (pubkey) VALUES (?);`,
-		pk.Hex())
+
+	const insert = `INSERT OR IGNORE INTO feed
+    (pubkey, updated_at, created_at) VALUES (?, ?, ?);`
+
+	var now = time.Now()
+	_, err = f.tx.Exec(insert, pk.Hex(), now, now)
 	return
 }
 
 func (f *feeds) Del(pk cipher.PubKey) (err error) {
-	_, err = f.tx.Exec(`DELETE FROM feed WHERE pubkey = ?;`, pk.Hex())
+
+	const del = `DELETE FROM feed WHERE pubkey = ?;`
+
+	var result sql.Result
+	if result, err = f.tx.Exec(del, pk.Hex()); err != nil {
+		return
+	}
+	var affected int64
+	if affected, err = result.RowsAffected(); err != nil {
+		return
+	}
+	if affected == 0 {
+		err = data.ErrNoSuchFeed
+	}
 	return
 }
 
@@ -134,73 +152,141 @@ func (f *feeds) Iterate(iterateFunc data.IterateFeedsFunc) (err error) {
 	return
 }
 
-func (f *feeds) Has(pk cipher.PubKey) (has bool, _ error) {
+func (f *feeds) Has(pk cipher.PubKey) (has bool, err error) {
 	err = f.tx.QueryRow(`SELECT COUNT(1) FROM feed WHERE pubkey = ?;`,
 		pk.Hex()).Scan(&has)
 	return
 }
 
-func (f *feeds) Heads(pk cipher.PubKey) (heads data.Heads, err error) {
-	//
+func (f *feeds) Heads(pk cipher.PubKey) (hs data.Heads, err error) {
+
+	var (
+		row    *sql.Row
+		feedID int64
+	)
+
+	row = f.tx.QueryRow(`SELECT id FROM feed WHERE pubkey = ?;`, pk.Hex())
+
+	if err = row.Scan(&feedID); err != nil {
+		if err == sql.ErrNoRows {
+			err = data.ErrNoSuchFeed
+		}
+		return
+	}
+
+	hs = &heads{feedID: feedID, tx: f.tx}
 	return
 }
 
-func (f *feeds) Len() (length int) {
-	f.tx.QueryRow(`SELECT COUNT(*) FROM feed;`, pk.Hex()).Scan(&length)
+func (f *feeds) Len() (length int, err error) {
+	err = f.tx.QueryRow(`SELECT COUNT(*) FROM feed;`, pk.Hex()).Scan(&length)
 	return
 }
 
 type heads struct {
-	id    int64
-	nonce uint64
-
-	tx *sql.Tx
+	feedID int64 // fead of the heads
+	tx     *sql.Tx
 }
 
 func (h *heads) Roots(nonce uint64) (rs data.Roots, err error) {
 
-	//
+	var (
+		row    *sql.Row
+		headID int64
+	)
 
+	row = f.tx.QueryRow(`SELECT id FROM head WHERE nonce = ?;`, nonce)
+
+	if err = row.Scan(&headID); err != nil {
+		if err == sql.ErrNoRows {
+			err = data.ErrNoSuchHead
+		}
+		return
+	}
+
+	rs = &roots{headID: headID, tx: f.tx}
 	return
 }
 
 func (h *heads) Add(nonce uint64) (rs data.Roots, err error) {
 
-	//
+	const insert = `INSERT OR IGNORE INTO head
+    (nonce, feed_id, updated_at, created_at) VALUES (?, ?, ?, ?);`
+
+	var now = time.Now()
+	_, err = f.tx.Exec(insert, nonce, h.feedID, now, now)
+	return
 
 	return
 }
 
 func (h *heads) Del(nonce uint64) (err error) {
 
-	//
+	const del = `DELETE FROM head WHERE nonce = ? AND feed_id = ?;`
 
+	var result sql.Result
+	if result, err = f.tx.Exec(del, nonce, h.feedID); err != nil {
+		return
+	}
+	var affected int64
+	if affected, err = result.RowsAffected(); err != nil {
+		return
+	}
+	if affected == 0 {
+		err = data.ErrNoSuchHead
+	}
 	return
 }
 
 func (h *heads) Has(nonce uint64) (ok bool, err error) {
 
-	//
+	const sel = `SELECT COUNT(1) FROM head
+        WHERE nonce = ?
+        AND feed_id = ?;`
 
+	err = f.tx.QueryRow(sel, nonce, h.feedID).Scan(&ok)
 	return
 }
 
 func (h *heads) Iterate(iterateFunc data.IterateHeadsFunc) (err error) {
 
-	//
+	const sel = `SELECT nonce FROM head WHERE feed_id = ?;`
 
+	var (
+		nonce uint64
+		rows  *sql.Rows
+	)
+
+	if rows, err = f.tx.Query(sel, h.feedID); err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		if err = rows.Scan(&nonce); err != nil {
+			return
+		}
+		if err = iterateFunc(nonce); err != nil {
+			if err == data.ErrStopIteration {
+				err = nil
+			}
+			return
+		}
+	}
+
+	err = rows.Err()
 	return
 }
 
-func (h *heads) Len() (length int) {
-
-	//
-
+func (h *heads) Len() (length int, err error) {
+	const sel = `SELECT COUNT(*) FROM head WHERE feed_id = ?`
+	err = h.tx.QueryRow(sel, h.feedID).Scan(&length)
 	return
 }
 
 type roots struct {
-	sess *xorm.Session
+	headID int64
+	tx     *sql.Tx
 }
 
 func (r *roots) Ascend(iterateFunc data.IterateRootsFunc) (err error) {
