@@ -6,6 +6,7 @@ CXO 对象存储系统
 [![Build Status](https://travis-ci.org/skycoin/cxo.svg)](https://travis-ci.org/skycoin/cxo)
 [![GoReportCard](https://goreportcard.com/badge/skycoin/cxo)](https://goreportcard.com/report/skycoin/cxo)
 [![Telegram group link](telegram-group.svg)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
+[![Google Groups](https://img.shields.io/badge/google%20groups-skycoincxo-blue.svg)](https://groups.google.com/forum/#!forum/skycoincxo)
 
 
 CXO 是一个对象系统，它的作用是用来分享不同的对象。CXO是一个底层的平台，可以在它的上面构建更多的应用。
@@ -49,7 +50,9 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 
 ### 开发社区
 
-- [telegram group](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
+- [telegram group (eng.)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
+- [telegram group (rus.)](https://t.me/joinchat/EUlzX0a5byZxH5MdnAOLLA)
+- [google group (eng.)](https://groups.google.com/forum/#!forum/skycoincxo)
 
 #### 模块
 
@@ -93,8 +96,66 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 
 ##### 版本
 
-- 2.1 d4e4ab573c438a965588a651ee1b76b8acbb3724
-- 3.0 master
+<!-- 1.0 -->
+
+<details>
+<summary>1.0</summary>
+
+not defined
+
+</details>
+
+<!-- 2.1 -->
+
+<details>
+<summary>2.1</summary>
+
+- git tag: `v2.1`
+- commit: `d4e4ab573c438a965588a651ee1b76b8acbb3724`
+
+Gopkg.toml
+
+```toml
+[[constraint]]
+name = "github.com/skycoin/cxo"
+revision = "d4e4ab573c438a965588a651ee1b76b8acbb3724"
+```
+
+or
+
+```toml
+[[constraint]]
+name = "github.com/skycoin/cxo"
+version = "v2.1"
+```
+
+</details>
+
+<!-- 3.0 -->
+
+<details>
+<summary>3.0</summary>
+
+- git tag: `v3.0`
+- commit: `8bc2f995634cd46d1266e2120795b04b025e0d62`
+
+Gopkg.toml
+
+```toml
+[[constraint]]
+name = "github.com/skycoin/cxo"
+revision = "8bc2f995634cd46d1266e2120795b04b025e0d62"
+```
+
+or
+
+```toml
+[[constraint]]
+name = "github.com/skycoin/cxo"
+version = "v3.0"
+```
+
+</details>
 
 ### 依赖
 

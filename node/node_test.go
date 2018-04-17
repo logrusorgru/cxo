@@ -1,7 +1,6 @@
 package node
 
 import (
-	"flag"
 	"testing"
 	"time"
 
@@ -11,17 +10,7 @@ import (
 	"github.com/skycoin/cxo/skyobject/registry"
 )
 
-// default "slow" timeout
-var slow = 500 * time.Millisecond
-
-// obtain "slow" timeout from flags to increase it in some cases
-func init() {
-	flag.DurationVar(&slow,
-		"slow-timeout",
-		slow,
-		"change 'slow' timeout")
-	flag.Parse()
-}
+const TM time.Duration = 500 * time.Millisecond
 
 func getTestConfigNotListen(prefix string) (c *Config) {
 	c = getTestConfig(prefix)
@@ -145,6 +134,22 @@ func assertIDs(t *testing.T, cs []*Conn, ids ...cipher.PubKey) {
 	}
 }
 
+func onRootReceivedToChannel(
+	chanBufferSize int, //                         :
+) (
+	channel chan *registry.Root, //                :
+	callback func(*Conn, *registry.Root) error, // :
+) {
+
+	channel = make(chan *registry.Root, 1)
+
+	callback = func(_ *Conn, r *registry.Root) (_ error) {
+		channel <- r
+		return
+	}
+	return
+}
+
 func TestNode_Publish(t *testing.T) {
 	// (r *registry.Root)
 
@@ -155,10 +160,7 @@ func TestNode_Publish(t *testing.T) {
 	var (
 		ln = getTestNode("server")
 
-		gr1 = make(chan *registry.Root, 1) // sc1
-		gr2 = make(chan *registry.Root, 1) // sc2
-
-		gn1 = make(chan *registry.Root, 1) // should not receive (uc1)
+		gr1, gr2, gn1 chan *registry.Root // sc1, sc2, uc1 (should not receive)
 
 		sc1 = getTestConfigNotListen("sc1") // subscriber
 		sc2 = getTestConfigNotListen("sc2") // subscriber
@@ -170,18 +172,9 @@ func TestNode_Publish(t *testing.T) {
 
 	// handle received roots
 
-	sc1.OnRootReceived = func(_ *Conn, r *registry.Root) (_ error) {
-		gr1 <- r
-		return
-	}
-	sc2.OnRootReceived = func(_ *Conn, r *registry.Root) (_ error) {
-		gr2 <- r
-		return
-	}
-	uc1.OnRootReceived = func(_ *Conn, r *registry.Root) (_ error) {
-		gn1 <- r
-		return
-	}
+	gr1, sc1.OnRootReceived = onRootReceivedToChannel(1)
+	gr2, sc2.OnRootReceived = onRootReceivedToChannel(1)
+	gn1, uc1.OnRootReceived = onRootReceivedToChannel(1)
 
 	// create clients (subscribed, subscribed, and not subscribed)
 
@@ -285,28 +278,33 @@ func TestNode_Publish(t *testing.T) {
 
 	// publish
 
-	if err = ln.Publish(r, up); err != nil {
-		t.Fatal(err)
-	}
+	ln.Publish(r)
 
 	// check out channels
 
-	select {
-	case <-gr1:
-	case <-time.After(slow):
-		t.Fatal("not received")
-	}
+	var after = time.After(TM)
 
 	select {
+	case <-gr1:
+		select {
+		case <-gr2:
+		case <-after:
+			t.Fatal("not received")
+		}
 	case <-gr2:
-	case <-time.After(slow):
+		select {
+		case <-gr1:
+		case <-after:
+			t.Fatal("not received")
+		}
+	case <-after:
 		t.Fatal("not received")
 	}
 
 	select {
 	case <-gn1:
 		t.Fatal("received")
-	case <-time.After(slow):
+	case <-after:
 	}
 
 	// ok, now let's disconnect one by one and check
@@ -317,7 +315,7 @@ func TestNode_Publish(t *testing.T) {
 	assertNil(t, err)
 	c.Close()
 
-	<-time.After(slow)
+	<-time.After(TM)
 
 	assertIDs(t, ln.Connections(), sn1.ID(), sn2.ID())
 	assertIDs(t, ln.ConnectionsOfFeed(pk), sn1.ID(), sn2.ID())
@@ -329,7 +327,7 @@ func TestNode_Publish(t *testing.T) {
 	assertNil(t, err)
 	c.Close()
 
-	<-time.After(slow)
+	<-time.After(TM)
 
 	assertIDs(t, ln.Connections(), sn1.ID())
 	assertIDs(t, ln.ConnectionsOfFeed(pk), sn1.ID())
@@ -341,7 +339,7 @@ func TestNode_Publish(t *testing.T) {
 	assertNil(t, err)
 	c.Close()
 
-	<-time.After(slow)
+	<-time.After(TM)
 
 	assertIDs(t, ln.Connections())
 	assertIDs(t, ln.ConnectionsOfFeed(pk))

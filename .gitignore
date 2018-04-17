@@ -47,6 +47,8 @@ intro/skybrief/skybrief
 intro/split/split
 intro/split/*-from-cxo.png
 
+intro/discovery/discovery
+
 intro/discovery/through/server/server
 intro/discovery/through/ca/ca
 intro/discovery/through/cb/cb
@@ -67,7 +69,10 @@ intro/cleanup/cleanup
 *.go.ignore
 
 *.db
+
 *.db.cxds
 *.db.idx
 
-
+*.bolt
+*.sqlite3
+*.badger
