@@ -7,7 +7,7 @@ import (
 
 var engine *xorm.Engine
 
-// Init SQlite3 DB for discovery server in memory
+// Init SQLite3 DB for discovery server in memory
 // (since it's for examples and tests)
 func Init() (err error) {
 
@@ -20,11 +20,24 @@ func Init() (err error) {
 	engine.SetMaxOpenConns(30)
 	engine.ShowSQL(true)
 
+	// terminate the SQLite3 DB on error
+	defer func() {
+		if err != nil {
+			engine.Close()
+		}
+	}()
+
 	if err = engine.Ping(); err != nil {
 		return
 	}
 
-	return createTables()
+	// enable foreign keys
+	if _, err = engine.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		return
+	}
+
+	err = createTables()
+	return
 }
 
 // Close SQlite3 DB
@@ -42,17 +55,23 @@ func createTables() (err error) {
 	//
 
 	const nodeTable = `CREATE TABLE node (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        id               INTEGER
+                         PRIMARY KEY
+                         AUTOINCREMENT
+                         NOT NULL,
+
         [key]            CHAR (66),
         service_address  CHAR (50),
         location         CHAR (100),
         version          TEXT,
         priority         INTEGER,
+
         created          DATETIME,
         updated          DATETIME
     );`
 
-	const nodeIndex = `CREATE UNIQUE INDEX idx_node_key ON node ( "key" );`
+	// 'key' is SQLite3 keyword
+	const nodeIndex = `CREATE UNIQUE INDEX idx_node_key ON node ("key");`
 
 	if err = createTable("node", nodeTable, nodeIndex); err != nil {
 		return
@@ -63,25 +82,30 @@ func createTables() (err error) {
 	//
 
 	const serviceTable = `CREATE TABLE service (
-        id                   INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        id                   INTEGER
+                             PRIMARY KEY
+                             AUTOINCREMENT
+                             NOT NULL,
+
         [key]                CHAR (66),
         address              CHAR (50),
         hide_from_discovery  INTEGER,
         allow_nodes          TEXT,
         version              CHAR (10),
+
         created              DATETIME,
         updated              DATETIME,
+
         node_id              INTEGER,
 
-        FOREIGN KEY (node_id)
-        REFERENCES  node (id) ON DELETE CASCADE
+        FOREIGN KEY (node_id) REFERENCES node (id) ON DELETE CASCADE
     );`
 
 	const serviceIndex = `CREATE UNIQUE INDEX
-        idx_service_key ON service ( "key" );`
+        idx_service_key ON service ("key");` // 'key' is SQLite3 keyword
 
 	const serviceNodeIdIndex = `CREATE INDEX
-        idx_service_node_id ON service ( "node_id" );`
+        idx_service_node_id ON service (node_id);`
 
 	err = createTable("service", serviceTable,
 		serviceIndex, serviceNodeIdIndex)
@@ -98,15 +122,14 @@ func createTables() (err error) {
         name        CHAR (20),
         service_id  INTEGER,
 
-        FOREIGN KEY (service_id)
-        REFERENCES  service (id) ON DELETE CASCADE
+        FOREIGN KEY (service_id) REFERENCES  service (id) ON DELETE CASCADE
     );`
 
 	const attributesNameIndex = `CREATE INDEX
-        idx_attributes_name ON attributes ( "name" );`
+        idx_attributes_name ON attributes (name);`
 
 	const attributesServiceIdIndex = `CREATE INDEX
-        idx_attributes_service_id ON attributes ( "service_id" );`
+        idx_attributes_service_id ON attributes (service_id);`
 
 	err = createTable("attributes",
 		attributesTable,

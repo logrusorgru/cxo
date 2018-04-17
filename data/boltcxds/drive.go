@@ -165,7 +165,7 @@ func (d *driveCXDS) resumeAllIterators() {
 
 // NewCXDS opens existing CXDS-database
 // or creates new by given file name. Underlying
-// database is boltdb (github.com/boltdb/bolt).
+// database is BoltDB (github.com/boltdb/bolt).
 // E.g. this stores data in filesystem
 func NewCXDS(
 	fileName string, //    : DB file path

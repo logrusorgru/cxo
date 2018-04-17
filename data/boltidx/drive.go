@@ -19,7 +19,7 @@ type driveDB struct {
 }
 
 // NewIdxDB creates data.IdxDB instance based
-// on boltdb that keeps data in filesystem
+// on BoltDB that keeps data in filesystem
 func NewIdxDB(fileName string) (idx data.IdxDB, err error) {
 
 	var created bool // true if db file has been created
