@@ -12,6 +12,7 @@ CX Object System
 [![GoReportCard](https://goreportcard.com/badge/skycoin/cxo)](https://goreportcard.com/report/skycoin/cxo)
 [![Telegram group](telegram-group.svg)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
 [![Google Groups](https://img.shields.io/badge/google%20groups-skycoincxo-blue.svg)](https://groups.google.com/forum/#!forum/skycoincxo)
+[![Riot group](riot-group.svg)](https://riot.im/app/#/room/#cxo:matrix.org)
 
 
 The CXO is objects system, goal of which is sharing any objects. The CXO
@@ -52,6 +53,7 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 - [telegram group (eng.)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
 - [telegram group (rus.)](https://t.me/joinchat/EUlzX0a5byZxH5MdnAOLLA)
 - [google group (eng.)](https://groups.google.com/forum/#!forum/skycoincxo)
+- [riot group (eng.)](https://riot.im/app/#/room/#cxo:matrix.org)
 
 #### Modules
 
