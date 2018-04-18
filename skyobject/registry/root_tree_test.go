@@ -164,7 +164,7 @@ func TestRoot_Tree(t *testing.T) {
 	t.Log(tree)
 
 	const aliceDynamicWantFormat = `(root) %s %s (reg: %s)
-└── *(dynamic) {%s:%s}
+└── *(dynamic) %s
     └── test.User
         ├── Name: 
         │   └── %s (type string)
@@ -173,7 +173,7 @@ func TestRoot_Tree(t *testing.T) {
 `
 	var aliceDynamicWant = fmt.Sprintf(aliceDynamicWantFormat,
 		r.Hash.Hex()[:7], r.Short(), reg.Reference().Short(),
-		aliceDynamic.Schema.Short(), aliceDynamic.Hash.Hex()[:7],
+		aliceDynamic.Short(),
 		alice.Name,
 		alice.Age,
 	)
@@ -197,13 +197,13 @@ func TestRoot_Tree(t *testing.T) {
 	t.Log(tree)
 
 	const emptyGroupDynamicWantFormat = `(root) %s %s (reg: %s)
-├── *(dynamic) {%s:%s}
+├── *(dynamic) %s
 │   └── test.User
 │       ├── Name: 
 │       │   └── %s (type string)
 │       └── Age: 
 │           └── %d (type uint32)
-└── *(dynamic) {%s:%s}
+└── *(dynamic) %s
     └── test.Group
         ├── Name: 
         │   └── %s (type string)
@@ -216,10 +216,10 @@ func TestRoot_Tree(t *testing.T) {
 `
 	var emptyGroupDynamicWant = fmt.Sprintf(emptyGroupDynamicWantFormat,
 		r.Hash.Hex()[:7], r.Short(), reg.Reference().Short(),
-		aliceDynamic.Schema.Short(), aliceDynamic.Hash.Hex()[:7],
+		aliceDynamic.Short(),
 		alice.Name,
 		alice.Age,
-		groupDynamic.Schema.Short(), groupDynamic.Hash.Hex()[:7],
+		groupDynamic.Short(),
 		group.Name,
 	)
 
@@ -252,13 +252,13 @@ func TestRoot_Tree(t *testing.T) {
 	t.Log(tree)
 
 	const groupEvaDynamicWantFormat = `(root) %s %s (reg: %s)
-├── *(dynamic) {%s:%s}
+├── *(dynamic) %s
 │   └── test.User
 │       ├── Name: 
 │       │   └── %s (type string)
 │       └── Age: 
 │           └── %d (type uint32)
-└── *(dynamic) {%s:%s}
+└── *(dynamic) %s
     └── test.Group
         ├── Name: 
         │   └── %s (type string)
@@ -276,10 +276,10 @@ func TestRoot_Tree(t *testing.T) {
 `
 	var groupEvaDynamicWant = fmt.Sprintf(groupEvaDynamicWantFormat,
 		r.Hash.Hex()[:7], r.Short(), reg.Reference().Short(),
-		aliceDynamic.Schema.Short(), aliceDynamic.Hash.Hex()[:7],
+		aliceDynamic.Short(),
 		alice.Name,
 		alice.Age,
-		groupDynamic.Schema.Short(), groupDynamic.Hash.Hex()[:7],
+		groupDynamic.Short(),
 		group.Name,
 		evaHash.Hex()[:7],
 		eva.Name,
@@ -329,13 +329,13 @@ func TestRoot_Tree(t *testing.T) {
 	t.Log(tree)
 
 	const groupMembersDynamicWantFormat = `(root) %s %s (reg: %s)
-├── *(dynamic) {%s:%s}
+├── *(dynamic) %s
 │   └── test.User
 │       ├── Name: 
 │       │   └── %s (type string)
 │       └── Age: 
 │           └── %d (type uint32)
-└── *(dynamic) {%s:%s}
+└── *(dynamic) %s
     └── test.Group
         ├── Name: 
         │   └── %s (type string)
@@ -375,14 +375,14 @@ func TestRoot_Tree(t *testing.T) {
 	var groupMembersDynamicWant = fmt.Sprintf(groupMembersDynamicWantFormat,
 		r.Hash.Hex()[:7], r.Short(), reg.Reference().Short(),
 		// alice
-		aliceDynamic.Schema.Short(), aliceDynamic.Hash.Hex()[:7],
+		aliceDynamic.Short(),
 		alice.Name,
 		alice.Age,
 		// group
-		groupDynamic.Schema.Short(), groupDynamic.Hash.Hex()[:7],
+		groupDynamic.Short(),
 		group.Name,
 		//  members
-		group.Members.Hash.Hex()[:7], len(members),
+		group.Members.Short(), len(members),
 		//   emma
 		members[0].Name, members[0].Age,
 		//   mia
@@ -422,13 +422,13 @@ func TestRoot_Tree(t *testing.T) {
 	t.Log(tree)
 
 	const groupDeveloperDynamicWantFormat = `(root) %s %s (reg: %s)
-├── *(dynamic) {%s:%s}
+├── *(dynamic) %s
 │   └── test.User
 │       ├── Name: 
 │       │   └── %s (type string)
 │       └── Age: 
 │           └── %d (type uint32)
-└── *(dynamic) {%s:%s}
+└── *(dynamic) %s
     └── test.Group
         ├── Name: 
         │   └── %s (type string)
@@ -462,7 +462,7 @@ func TestRoot_Tree(t *testing.T) {
         │           └── Age: 
         │               └── %d (type uint32)
         └── Developer: 
-            └── *(dynamic) {%s:%s}
+            └── *(dynamic) %s
                 └── test.User
                     ├── Name: 
                     │   └── %s (type string)
@@ -473,14 +473,14 @@ func TestRoot_Tree(t *testing.T) {
 	var groupDeveloperDynamicWant = fmt.Sprintf(groupDeveloperDynamicWantFormat,
 		r.Hash.Hex()[:7], r.Short(), reg.Reference().Short(),
 		// alice
-		aliceDynamic.Schema.Short(), aliceDynamic.Hash.Hex()[:7],
+		aliceDynamic.Short(),
 		alice.Name,
 		alice.Age,
 		// group
-		groupDynamic.Schema.Short(), groupDynamic.Hash.Hex()[:7],
+		groupDynamic.Short(),
 		group.Name,
 		//  members
-		group.Members.Hash.Hex()[:7], len(members),
+		group.Members.Short(), len(members),
 		//   emma
 		members[0].Name, members[0].Age,
 		//   mia
@@ -494,7 +494,7 @@ func TestRoot_Tree(t *testing.T) {
 		eva.Name,
 		eva.Age,
 		//  developer
-		group.Developer.Schema.Short(), group.Developer.Hash.Hex()[:7],
+		group.Developer.Short(),
 		developer.Name,
 		developer.Age,
 	)
