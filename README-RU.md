@@ -10,7 +10,7 @@ CXO - система обмена объектами на основе блок�
 
 [![Build Status](https://travis-ci.org/skycoin/cxo.svg)](https://travis-ci.org/skycoin/cxo)
 [![GoReportCard](https://goreportcard.com/badge/skycoin/cxo)](https://goreportcard.com/report/skycoin/cxo)
-[![Telegram group link](telegram-group.svg)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
+[![Telegram group link](telegram-group.svg)](https://t.me/skycoincxo)
 [![Google Groups](https://img.shields.io/badge/google%20groups-skycoincxo-blue.svg)](https://groups.google.com/forum/#!forum/skycoincxo)
 [![Riot group](riot-group.svg)](https://riot.im/app/#/room/#cxo:matrix.org)
 
@@ -49,8 +49,8 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 
 ### Разработка
 
-- [группа в Телеграм (англ.)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
-- [группа в Телеграм (рус.)](https://t.me/joinchat/EUlzX0a5byZxH5MdnAOLLA)
+- [группа в Телеграм (англ.)](https://t.me/skycoincxo)
+- [группа в Телеграм (рус.)](https://t.me/skycoincxorus)
 - [Google Groups (англ.)](https://groups.google.com/forum/#!forum/skycoincxo)
 - [группа в Riot (англ.)](https://riot.im/app/#/room/#cxo:matrix.org)
 

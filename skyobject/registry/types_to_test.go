@@ -144,15 +144,10 @@ func testTypes() (ts []testType) {
 	return
 }
 
-func testRegistry() (reg *Registry) {
-
-	reg = NewRegistry(func(r *Reg) {
-
+func testRegistry() *Registry {
+	return NewRegistry(func(r *Reg) {
 		for _, tt := range testTypes() {
 			r.Register(tt.Name, tt.Val)
 		}
-
 	})
-
-	return
 }

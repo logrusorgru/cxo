@@ -23,7 +23,7 @@ type Root struct {
 	Time int64  // timestamp (unix nano)
 
 	// Both Sig and Hash are not parts of
-	// a Root. But they used everywerer
+	// a Root. But they used everywhere
 
 	Sig  cipher.Sig    `enc:"-"` // signature
 	Hash cipher.SHA256 `enc:"-"` // hash of this encoded Root

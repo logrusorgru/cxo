@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/skycoin/skycoin/src/cipher"
-	//"github.com/skycoin/skycoin/src/cipher/encoder"
+	"github.com/skycoin/skycoin/src/cipher/encoder"
 )
 
 // dummy pack
@@ -101,4 +101,12 @@ func (e *errorPack) Set(cipher.SHA256, []byte) (_ error) {
 func (e *errorPack) Add([]byte) (_ cipher.SHA256, err error) {
 	err = errTest
 	return
+}
+
+//
+// helper method
+//
+
+func addToPack(pack Pack, val interface{}) (cipher.SHA256, error) {
+	return pack.Add(encoder.Serialize(val))
 }

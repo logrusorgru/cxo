@@ -1687,37 +1687,49 @@ func (r *Refs) Tree(
 	err error, //      : loading error
 ) {
 
-	var gt gotree.GTStructure
-
 	if forceLoad == true {
 		if err = r.initialize(pack); err != nil {
 			return
 		}
 	}
 
-	gt.Name = "[](refs) " + r.Short()
+	var (
+		gt gotree.Tree
+
+		rootName = "[](refs) " + r.Short()
+	)
 
 	if forceLoad == true || (r.refsNode != nil && r.mods&loadedMod != 0) {
-		gt.Name += fmt.Sprintf(" length: %d, degree: %d, depth: %d",
+
+		rootName += fmt.Sprintf(" length: %d, degree: %d, depth: %d",
 			r.length, r.degree, r.depth)
 
-		gt.Items, err = r.treeNode(pack, forceLoad, r.refsNode, r.depth)
+		gt = gotree.New(rootName)
+		err = r.treeNode(gt, pack, forceLoad, r.refsNode, r.depth)
+
+		if err != nil {
+			return
+		}
+
 	} else {
-		gt.Name += " (not loaded)"
+
+		rootName += " (not loaded)"
+		gt = gotree.New(rootName)
+
 	}
 
-	tree = gotree.StringTree(&gt)
+	tree = gt.Print()
 	return
 }
 
 func (r *Refs) treeNode(
-	pack Pack, //                  : pack to laod
-	forceLoad bool, //             : force load subtrees
-	rn *refsNode, //               : the node
-	depth int, //                  : depth of the node
+	gt gotree.Tree, // : root
+	pack Pack, //      : pack to laod
+	forceLoad bool, // : force load subtrees
+	rn *refsNode, //   : the node
+	depth int, //      : depth of the node
 ) (
-	items []*gotree.GTStructure, // : items of the node
-	err error, //                  : error if any
+	err error, //      : error if any
 ) {
 
 	// hash and length of the node are already printed
@@ -1725,14 +1737,12 @@ func (r *Refs) treeNode(
 	if depth == 0 {
 
 		if len(rn.leafs) == 0 {
-			items = []*gotree.GTStructure{&gotree.GTStructure{Name: "(empty)"}}
+			gt.Add("(empty)")
 			return
 		}
 
 		for _, el := range rn.leafs {
-			items = append(items, &gotree.GTStructure{
-				Name: el.Hash.Hex()[:7], // short
-			})
+			gt.Add(el.Hash.Hex()[:7]) // short
 		}
 
 		return
@@ -1749,22 +1759,19 @@ func (r *Refs) treeNode(
 		}
 
 		if br.isLoaded() == false {
-			items = append(items, &gotree.GTStructure{
-				Name: br.hash.Hex()[:7] + " (not loaded)",
-			})
+			gt.Add(br.hash.Hex()[:7] + " (not loaded)")
 			continue
 		}
 
-		var item gotree.GTStructure
+		var item = gotree.New(br.hash.Hex()[:7] + " " + fmt.Sprint(br.length))
 
-		item.Name = br.hash.Hex()[:7] + " " + fmt.Sprint(br.length)
-		item.Items, err = r.treeNode(pack, forceLoad, br, depth-1)
+		err = r.treeNode(item, pack, forceLoad, br, depth-1)
 
 		if err != nil {
 			return
 		}
 
-		items = append(items, &item)
+		gt.AddTree(item)
 
 	}
 

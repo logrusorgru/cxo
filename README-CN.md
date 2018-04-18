@@ -5,7 +5,7 @@ CXO 对象存储系统
 
 [![Build Status](https://travis-ci.org/skycoin/cxo.svg)](https://travis-ci.org/skycoin/cxo)
 [![GoReportCard](https://goreportcard.com/badge/skycoin/cxo)](https://goreportcard.com/report/skycoin/cxo)
-[![Telegram group link](telegram-group.svg)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
+[![Telegram group link](telegram-group.svg)](https://t.me/skycoincxo)
 [![Google Groups](https://img.shields.io/badge/google%20groups-skycoincxo-blue.svg)](https://groups.google.com/forum/#!forum/skycoincxo)
 [![Riot group](riot-group.svg)](https://riot.im/app/#/room/#cxo:matrix.org)
 
@@ -51,8 +51,8 @@ docker run -ti --rm -p 8870:8870 -p 8871:8871 skycoin/cxo
 
 ### 开发社区
 
-- [telegram group (eng.)](https://t.me/joinchat/B_ax-A6oCR9eQuAPiJtvaw)
-- [telegram group (rus.)](https://t.me/joinchat/EUlzX0a5byZxH5MdnAOLLA)
+- [telegram group (eng.)](https://t.me/skycoincxo)
+- [telegram group (rus.)](https://t.me/skycoincxorus)
 - [google group (eng.)](https://groups.google.com/forum/#!forum/skycoincxo)
 - [riot group (eng.)](https://riot.im/app/#/room/#cxo:matrix.org)
 
