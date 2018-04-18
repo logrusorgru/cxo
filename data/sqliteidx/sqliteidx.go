@@ -279,7 +279,7 @@ func (h *heads) Iterate(iterateFunc data.IterateHeadsFunc) (err error) {
 }
 
 func (h *heads) Len() (length int, err error) {
-	const sel = `SELECT COUNT(*) FROM head WHERE feed_id = ?`
+	const sel = `SELECT COUNT(*) FROM head WHERE feed_id = ?;`
 	err = h.tx.QueryRow(sel, h.feedID).Scan(&length)
 	return
 }
@@ -289,51 +289,131 @@ type roots struct {
 	tx     *sql.Tx
 }
 
-func (r *roots) Ascend(iterateFunc data.IterateRootsFunc) (err error) {
+func scanRoot(rows *sql.Rows) (dr *data.Root, err error) {
+	var rt root
 
-	//
+	err = rows.Scan(
+		&rt.Seq,
+		&rt.HeadID,
+		&rt.AccessTime,
+		&rt.Timestamp,
+		&rt.Prev,
+		&rt.Hash,
+		&rt.Sig,
+		&rt.CreatedAt,
+	)
 
+	if err != nil {
+		return
+	}
+
+	dr = new(data.Root)
+
+	dr.Create = rt.CreatedAt.UnixNano()
+	dr.Access = rt.AccessTime.UnixNano()
+	dr.Time = rt.Timestamp.UnixNano()
+	dr.Seq = rt.Seq
+
+	if rt.Prev.Valid == true {
+		if dr.Prev, err = cipher.SHA256FromHex(rt.Prev.String); err != nil {
+			return
+		}
+	}
+
+	if dr.Hash, err = cipher.SHA256FromHex(rt.Hash); err != nil {
+		return
+	}
+
+	dr.Sig, err = cipher.SigFromHex(rt.Sig)
 	return
 }
 
-func (r *roots) Descend(iterateFunc data.IterateRootsFunc) (err error) {
+func (r *roots) iterate(
+	dir string,
+	iterateFunc data.IterateRootsFunc,
+) (
+	err error,
+) {
 
-	//
+	const sel = `SELECT (
+		seq,
+		head_id,
+		access_time,
+		timestamp,
+		prev,
+		hash,
+		sig,
+		created_at
+	)
+	FROM root
+	WHERE head_id = ?` // + ASC or DESC;
 
+	var (
+		nonce uint64
+		rows  *sql.Rows
+	)
+
+	if rows, err = f.tx.Query(sel+" "+dir+";", r.headID); err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var dr *data.Root
+		if dr, err = scanRoot(rows); err != nil {
+			return
+		}
+
+		if err = iterateFunc(dr); err != nil {
+			if err == data.ErrStopIteration {
+				err = nil
+			}
+			return
+		}
+
+	}
+
+	err = rows.Err()
 	return
+}
+
+func (r *roots) Ascend(iterateFunc data.IterateRootsFunc) error {
+	return r.iterate("ASC", iterateFunc)
+}
+
+func (r *roots) Descend(iterateFunc data.IterateRootsFunc) error {
+	return r.iterate("DESC", iterateFunc)
 }
 
 func (r *roots) Set(dr *data.Root) (err error) {
-
 	//
-
 	return
 }
 
 func (r *roots) Del(seq uint64) (err error) {
-
-	//
-
+	const del = `DELETE FROM root WHERE seq = ? AND head_id = ?;`
+	_, err = f.tx.Exec(del, seq, r.headID)
 	return
 }
 
 func (r *roots) Get(seq uint64) (dr *data.Root, err error) {
-
 	//
-
 	return
 }
 
 func (r *roots) Has(seq uint64) (ok bool, err error) {
 
-	//
+	const sel = `SELECT COUNT(1) FROM root
+        WHERE seq = ?
+        AND head_id = ?;`
 
+	err = f.tx.QueryRow(sel, seq, r.headID).Scan(&ok)
 	return
 }
 
-func (r *roots) Len() (length int) {
-
-	//
-
+func (r *roots) Len() (length int, err error) {
+	const sel = `SELECT COUNT(*) FROM root WHERE head_id = ?;`
+	err = h.tx.QueryRow(sel, r.headID).Scan(&length)
 	return
 }

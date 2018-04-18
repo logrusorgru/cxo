@@ -31,7 +31,7 @@ type root struct {
 	HeadID     int64
 	AccessTime time.Time
 	Timestamp  time.Time
-	Prev       string // can be null
+	Prev       sql.NullString
 	Hash       string
 	Sig        string
 

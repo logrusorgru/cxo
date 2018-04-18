@@ -1,54 +1,62 @@
 package db
 
 import (
-	"github.com/go-xorm/xorm"
+	"database/sql"
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// InMemory keeps data base path to use DB in-memory
+const InMemory = "file::memory:?cache=shared"
+
+type DB struct {
+	db *sql.DB
+}
+
 var engine *xorm.Engine
 
-// Init SQLite3 DB for discovery server in memory
-// (since it's for examples and tests)
-func Init() (err error) {
+// Init SQLite3 DB for discovery server. Provide
+// db path o use InMemory constant
+func Init(dbPath string) (db *DB, err error) {
 
-	engine, err = xorm.NewEngine("sqlite3", "file::memory:?cache=shared")
-	if err != nil {
+	var sq *sql.DB
+
+	if sq, err = sql.Open("sqlite3", dbPath); err != nil {
 		return
 	}
 
-	engine.SetMaxIdleConns(30)
-	engine.SetMaxOpenConns(30)
-	engine.ShowSQL(true)
+	sq.SetMaxIdleConns(30)
+	sq.SetMaxOpenConns(30)
 
 	// terminate the SQLite3 DB on error
 	defer func() {
 		if err != nil {
-			engine.Close()
+			sq.Close()
 		}
 	}()
 
-	if err = engine.Ping(); err != nil {
+	if err = createTables(sq); err != nil {
 		return
 	}
 
-	// enable foreign keys
-	if _, err = engine.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+	db = new(DB)
+	db.db = sq
+	return
+}
+
+// Close DB
+func (d *DB) Close() error {
+	return d.db.Close()
+}
+
+func createTables(sq *sql.DB) (err error) {
+
+	//
+	// ping
+	//
+
+	if err = sq.Ping(); err != nil {
 		return
 	}
-
-	err = createTables()
-	return
-}
-
-// Close SQlite3 DB
-func Close() (err error) {
-	if engine != nil {
-		err = engine.Close()
-	}
-	return
-}
-
-func createTables() (err error) {
 
 	//
 	// foreign keys (disabled by default)
@@ -83,7 +91,7 @@ func createTables() (err error) {
 	// 'key' is SQLite3 keyword
 	const nodeIndex = `CREATE UNIQUE INDEX idx_node_key ON node ("key");`
 
-	if err = createTable("node", nodeTable, nodeIndex); err != nil {
+	if err = createTable(sq, "node", nodeTable, nodeIndex); err != nil {
 		return
 	}
 
@@ -117,7 +125,7 @@ func createTables() (err error) {
 	const serviceNodeIdIndex = `CREATE INDEX
         idx_service_node_id ON service (node_id);`
 
-	err = createTable("service", serviceTable,
+	err = createTable(sq, "service", serviceTable,
 		serviceIndex, serviceNodeIdIndex)
 
 	if err != nil {
@@ -141,7 +149,7 @@ func createTables() (err error) {
 	const attributesServiceIdIndex = `CREATE INDEX
         idx_attributes_service_id ON attributes (service_id);`
 
-	err = createTable("attributes",
+	err = createTable(sq, "attributes",
 		attributesTable,
 		attributesNameIndex,
 		attributesServiceIdIndex)
@@ -149,22 +157,29 @@ func createTables() (err error) {
 	return
 }
 
-func createTable(name, create string, indices ...string) (err error) {
+func createTable(
+	sq *sql.DB, //        :
+	name string, //       :
+	create string, //     :
+	indices ...string, // :
+) (
+	err error, //         :
+) {
 
 	var exist bool
 
-	if exist, err = engine.IsTableExist(name); err != nil {
+	if exist, err = isTableExist(sq, name); err != nil {
 		return
 	}
 
 	if exist == false {
 
-		if _, err = engine.Exec(create); err != nil {
+		if _, err = sq.Exec(create); err != nil {
 			return
 		}
 
 		for _, idx := range indices {
-			if _, err = engine.Exec(idx); err != nil {
+			if _, err = sq.Exec(idx); err != nil {
 				return
 			}
 		}
@@ -173,4 +188,14 @@ func createTable(name, create string, indices ...string) (err error) {
 
 	return
 
+}
+
+func isTableExist(sq *sql.DB, name string) (exist bool, err error) {
+
+	const sel = `SELECT COUNT(*) FROM sqlite_master
+    WHERE type = 'table'
+    AND name = ?;`
+
+	err = sq.QueryRow(sel, name).Scan(&exist)
+	return
 }

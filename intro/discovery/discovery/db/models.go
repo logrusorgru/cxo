@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/skycoin/net/skycoin-messenger/factory"
@@ -14,12 +15,13 @@ type Node struct {
 	Location       string
 	Version        []string
 	Priority       int
-	Created        time.Time `xorm:"created"`
-	Updated        time.Time `xorm:"updated"`
+	Created        time.Time
+	Updated        time.Time
 }
 
-func (n *Node) TableName() string {
-	return "node"
+// Scan *sql.Rows or *sql.Row
+func (n *Node) Scan(row sql.Scanner) (err error) {
+	//
 }
 
 type Service struct {
@@ -30,29 +32,25 @@ type Service struct {
 	AllowNodes        []string
 	Version           string
 	NodeId            int64
-	Created           time.Time `xorm:"created"`
-	Updated           time.Time `xorm:"updated"`
-}
-
-func (s *Service) TableName() string {
-	return "service"
+	Created           time.Time
+	Updated           time.Time
 }
 
 type Attributes struct {
-	Name      string `xorm:"varchar(20)"`
+	Name      string
 	ServiceId int64
 }
 
-func (a *Attributes) TableName() string {
-	return "attributes"
+func (d *DB) nodeByKey(key cipher.PubKey) (n *Node, err error) {
+
+	const sel = `SELECT * FROM node WHERE 'key' = ?;`
+
 }
 
-func UnRegisterService(key cipher.PubKey) (err error) {
+func (d *DB) UnRegisterService(key cipher.PubKey) (err error) {
 
-	var sess = engine.NewSession()
-	defer sess.Close()
-
-	if err = sess.Begin(); err != nil {
+	var tx *sql.Tx
+	if tx, err = d.db.Begin(); err != nil {
 		return
 	}
 
