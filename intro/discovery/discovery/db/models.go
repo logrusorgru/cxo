@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/skycoin/net/skycoin-messenger/factory"
@@ -9,192 +10,394 @@ import (
 )
 
 type Node struct {
-	Id             int64
-	Key            string
+	ID             int64
+	PK             string
 	ServiceAddress string
 	Location       string
 	Version        []string
 	Priority       int
-	Created        time.Time
-	Updated        time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Scan *sql.Rows or *sql.Row
 func (n *Node) Scan(row sql.Scanner) (err error) {
 	//
+	return
 }
 
 type Service struct {
-	Id                int64
-	Key               string
+	ID                int64
+	PK                string
 	Address           string
 	HideFromDiscovery bool
 	AllowNodes        []string
 	Version           string
 	NodeId            int64
-	Created           time.Time
-	Updated           time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type Attributes struct {
 	Name      string
-	ServiceId int64
+	ServiceID int64
 }
 
-func (d *DB) nodeByKey(key cipher.PubKey) (n *Node, err error) {
+/*
 
-	const sel = `SELECT * FROM node WHERE 'key' = ?;`
+func (d *DB) servicesIDsByNodeID(
+	tx *sql.Tx, //   :
+	nodeID int64, // :
+) (
+	sis []int64, //  : ids of services
+	err error, //    :
+) {
 
+	var rows *sql.Rows
+	rows, err = tx.Query(`SELECT id FROM service WHERE node_id = ?;`, nodeID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			return
+		}
+		sis = append(sis, id)
+	}
+
+	err = rows.Err()
+	return
 }
 
-func (d *DB) UnRegisterService(key cipher.PubKey) (err error) {
+*/
+
+func (d *DB) UnRegisterService(pk cipher.PubKey) (err error) {
 
 	var tx *sql.Tx
 	if tx, err = d.db.Begin(); err != nil {
 		return
 	}
 
-	var node = &Node{}
-
-	if _, err = engine.Where("key = ?", key.Hex()).Get(node); err != nil {
-		sess.Rollback()
-		return
-	}
-
-	services := make([]Service, 0)
-	err = engine.Where("node_id = ?", node.Id).Find(&services)
+	_, err = tx.Exec(`DELETE FROM node WHERE pk = ?;`, pk.Hex())
 	if err != nil {
-		sess.Rollback()
+		tx.Rollback()
 		return
 	}
 
-	_, err = engine.Where("key = ?", key.Hex()).Delete(&Node{})
-	if err != nil {
-		sess.Rollback()
+	return tx.Commit()
+}
+
+func serializeStrings(ss []string) (s string, err error) {
+	var sb []byte
+	if sb, err = json.Marshal(ss); err != nil {
 		return
 	}
-
-	_, err = engine.Where("node_id = ?", node.Id).Delete(&Service{})
-	if err != nil {
-		sess.Rollback()
-		return
-	}
-
-	for _, v := range services {
-		_, err = engine.Where("service_id == ?", v.Id).Delete(&Attributes{})
-		if err != nil {
-			sess.Rollback()
-			return err
-		}
-	}
-
-	sess.Commit()
+	s = string(sb)
 	return
 }
 
-func DelByKeyString(key string) (err error) {
-	_, err = engine.Where("key = ?", key).Delete(&Node{})
+func deserializeStrings(s string) (ss []string, err error) {
+	err = json.Unmarshal([]byte(s), &ss)
 	return
 }
 
-func RegisterService(key cipher.PubKey, ns *factory.NodeServices) (err error) {
-
-	var sess = engine.NewSession()
-	defer sess.Close()
-
-	if err = sess.Begin(); err != nil {
-		return
+// returns (0, nil) if not exist
+func (d *DB) nodeIDByPK(tx *sql.Tx, pk cipher.PubKey) (id int64, err error) {
+	err = tx.QueryRow(`SELECT id FROM node WHERE pk = ?;`, pk.Hex()).
+		Scan(&id)
+	if err == sql.ErrNoRows {
+		err = nil // id = 0
 	}
+	return
+}
 
-	exist, err := engine.Where("key = ?", key.Hex()).Exist(&Node{})
+func (d *DB) updateNode(
+	tx *sql.Tx, //            :
+	nodeID int64, //          :
+	serviceAddress string, // :
+	location string, //       :
+	version string, //        :
+) (
+	err error, //             :
+) {
+
+	const updateNode = `UPDATE node
+        SET
+          service_address = ?,
+          location = ?,
+          version = ?,
+          updated_at = ?
+        WHERE id = ?;`
+
+	_, err = tx.Exec(updateNode,
+		serviceAddress,
+		location,
+		version,
+		time.Now(),
+		nodeID)
+
+	return
+}
+
+func (d *DB) insertNode(
+	tx *sql.Tx,
+	pk cipher.PubKey,
+	serviceAddresses string,
+	location string,
+	version string,
+) (
+	nodeID int64,
+	err error,
+) {
+
+	const insertNode = `INSERT INTO node (
+      pk,
+      service_address,
+      location,
+      version,
+
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?);`
+
+	var (
+		now    = time.Now()
+		result sql.Result
+	)
+
+	result, err = tx.Exec(insertNode,
+		pk.Hex(),
+		serviceAddresses,
+		location,
+		version,
+		now,
+		now)
 	if err != nil {
 		return
 	}
 
-	node := &Node{
-		Key:            key.Hex(),
-		ServiceAddress: ns.ServiceAddress,
-		Location:       ns.Location,
-		Version:        ns.Version,
+	nodeID, err = result.LastInsertId()
+	return
+}
+
+func (d *DB) updateService(
+	tx *sql.Tx, //             :
+	serviceID int64, //        :
+	pk cipher.PubKey, //       :
+	address string, //         :
+	hideFromDiscovery bool, // :
+	allowNodes string, //      :
+	version string, //         :
+	nodeID int64, //           :
+) (
+	err error, //              :
+) {
+
+	const updateService = `UPDATE service
+        SET
+          pk = ?,
+          address = ?,
+          hide_from_discovery = ?,
+          allow_nodes = ?,
+          version = ?,
+
+          node_id = ?,
+
+          updated_at = ?
+        WHERE id = ?;`
+
+	_, err = tx.Exec(updateService,
+		pk.Hex(),
+		address,
+		hideFromDiscovery,
+		allowNodes,
+		version,
+		nodeID, // node_id? does it really needed?
+		time.Now(),
+		serviceID)
+	return
+}
+
+func (d *DB) insertService(
+	tx *sql.Tx, //             :
+	pk cipher.PubKey, //       :
+	address string, //         :
+	hideFromDiscovery bool, // :
+	allowNodes string, //      :
+	version string, //         :
+	nodeID int64, //           :
+) (
+	serviceID int64, //        :
+	err error, //              :
+) {
+
+	const insertService = `INSERT INTO service (
+      pk,
+      address,
+      hide_from_discovery,
+      allow_nodes,
+      version,
+
+      node_id,
+
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
+
+	var (
+		now    = time.Now()
+		result sql.Result
+	)
+
+	result, err = tx.Exec(insertService,
+		pk.Hex(),
+		address,
+		hideFromDiscovery,
+		allowNodes,
+		version,
+		nodeID,
+		now,
+		now)
+	if err != nil {
+		return
 	}
 
-	if exist {
-		_, err = engine.Where("key = ?", key.Hex()).Update(node)
-		if err != nil {
-			sess.Rollback()
-			return
-		}
+	serviceID, err = result.LastInsertId()
+	return
+}
+
+// returns (0, nil) if not exist
+func (d *DB) serviceIDByPK(tx *sql.Tx, pk cipher.PubKey) (id int64, err error) {
+	err = tx.QueryRow(`SELECT id FROM service WHERE pk = ?;`, pk.Hex()).
+		Scan(&id)
+	if err == sql.ErrNoRows {
+		err = nil // id = 0
+	}
+	return
+}
+
+func (d *DB) RegisterService(
+	pk cipher.PubKey,
+	ns *factory.NodeServices,
+) (
+	err error,
+) {
+
+	var tx *sql.Tx
+	if tx, err = d.db.Begin(); err != nil {
+		return
+	}
+
+	var nodeID int64
+	if nodeID, err = d.nodeIDByPK(tx, pk); err != nil {
+		tx.Rollback()
+		return
+	}
+
+	var version string
+	if version, err = serializeStrings(ns.Version); err != nil {
+		tx.Rollback()
+		return
+	}
+
+	// if exists
+	if nodeID != 0 {
+		err = d.updateNode(tx, nodeID, ns.ServiceAddress, ns.Location, version)
 	} else {
-		if _, err = engine.Insert(node); err != nil {
-			sess.Rollback()
-			return
-		}
+		nodeID, err = d.insertNode(tx,
+			pk,
+			ns.ServiceAddress,
+			ns.Location,
+			version)
 	}
+
+	if err != nil {
+		tx.Rollback()
+		return
+	}
+
+	// TODO (kostyarin): -----
 
 	for _, v := range ns.Services {
 
-		tmpService := &Service{}
-
-		ok, err := engine.Where("key = ?", v.Key.Hex()).Get(tmpService)
-		if err != nil {
-			sess.Rollback()
-			return err
+		var serviceID int64
+		if serviceID, err = d.serviceIDByPK(tx, v.Key.Hex()); err != nil {
+			tx.Rollback()
+			return
 		}
 
-		service := &Service{
-			Key:               v.Key.Hex(),
-			Address:           v.Address,
-			HideFromDiscovery: v.HideFromDiscovery,
-			AllowNodes:        v.AllowNodes,
-			Version:           v.Version,
-			NodeId:            node.Id,
+		var allowNodes string
+		if allowNodes, err = serializeStrings(v.AllowNodes); err != nil {
+			tx.Rollback()
+			return
 		}
 
-		if ok {
-			_, err = engine.Where("key = ?", v.Key.Hex()).Update(service)
+		// if exists
+		if serviceID != 0 {
+
+			err = d.updateService(tx,
+				serviceID,
+				v.Key,
+				v.Address,
+				v.HideFromDiscovery,
+				allowNodes,
+				v.Version,
+				nodeID)
 			if err != nil {
-				sess.Rollback()
-				return err
+				tx.Rollback()
+				return
 			}
-			_, err = engine.Where("service_id == ?", service.Id).
-				Delete(&Attributes{})
-			if err != nil {
-				sess.Rollback()
-				return err
+
+			const deleteAttribute = `DELETE FROM attribute
+            WHERE service_id = ?;`
+
+			if _, err = tx.Exec(deleteAttribute, serviceID); err != nil {
+				tx.Rollback()
+				return
 			}
+
 		} else {
-			_, err = engine.Insert(service)
+
+			serviceID, err = d.insertService(tx,
+				v.Key,
+				v.Address,
+				v.HideFromDiscovery,
+				allowNodes,
+				v.Version,
+				nodeID)
+
 			if err != nil {
-				sess.Rollback()
-				return err
+				tx.Rollback()
+				return
 			}
+
 		}
 
 		for _, attr := range v.Attributes {
-			_, err = engine.Insert(&Attributes{
-				Name:      attr,
-				ServiceId: service.Id,
-			})
-			if err != nil {
-				sess.Rollback()
-				return err
+
+			const insertAttribute = `INSERT INTO attribute
+              (name, service_id)
+            VALUES
+              (?, ?);`
+
+			if _, err = tx.Exec(insertAttribute, attr, serviceID); err != nil {
+				tx.Rollback()
+				return
 			}
 		}
 
 	}
 
-	sess.Commit()
-	return
+	return tx.Commit()
 }
 
 type NodeDetail struct {
-	Node       `xorm:"extends"`
-	Service    `xorm:"extends"`
-	Attributes `xorm:"extends"`
-}
-
-func (NodeDetail) TableName() string {
-	return "node"
+	Node
+	Service
+	Attributes
 }
 
 func FindResultByAttrs(attr ...string) (result *factory.AttrNodesInfo) {
@@ -331,8 +534,8 @@ func FindResultByAttrsAndPaging(
 }
 
 type NodeAndService struct {
-	Node    `xorm:"extends"`
-	Service `xorm:"extends"`
+	Node
+	Service
 }
 
 func FindServiceAddresses(

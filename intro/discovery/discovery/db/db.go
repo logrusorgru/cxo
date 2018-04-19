@@ -2,25 +2,37 @@ package db
 
 import (
 	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/mattn/go-sqlite3"
 )
 
-// InMemory keeps data base path to use DB in-memory
+func init() {
+
+	const enableForeignKeys = `PRAGMA foreign_keys = ON;`
+
+	sql.Register("sqlite3_with_foreign_keys",
+		&sqlite3.SQLiteDriver{
+			ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
+				_, err = conn.Exec(enableForeignKeys, nil)
+				return
+			},
+		})
+
+}
+
+// InMemory keeps DB path to use DB in-memory
 const InMemory = "file::memory:?cache=shared"
 
 type DB struct {
 	db *sql.DB
 }
 
-var engine *xorm.Engine
-
 // Init SQLite3 DB for discovery server. Provide
 // db path o use InMemory constant
 func Init(dbPath string) (db *DB, err error) {
 
 	var sq *sql.DB
-
-	if sq, err = sql.Open("sqlite3", dbPath); err != nil {
+	if sq, err = sql.Open("sqlite3_with_foreign_keys", dbPath); err != nil {
 		return
 	}
 
@@ -59,16 +71,6 @@ func createTables(sq *sql.DB) (err error) {
 	}
 
 	//
-	// foreign keys (disabled by default)
-	//
-
-	const enableForeignKeys = `PRAGMA foreign_keys = ON;`
-
-	if _, err = engine.Exec(enableForeignKeys); err != nil {
-		return
-	}
-
-	//
 	// node table
 	//
 
@@ -78,18 +80,17 @@ func createTables(sq *sql.DB) (err error) {
                          AUTOINCREMENT
                          NOT NULL,
 
-        [key]            CHAR (66),
+        pk               CHAR (66),
         service_address  CHAR (50),
         location         CHAR (100),
         version          TEXT,
         priority         INTEGER,
 
-        created          DATETIME,
-        updated          DATETIME
+        created_at       DATETIME,
+        updated_at       DATETIME
     );`
 
-	// 'key' is SQLite3 keyword
-	const nodeIndex = `CREATE UNIQUE INDEX idx_node_key ON node ("key");`
+	const nodeIndex = `CREATE UNIQUE INDEX idx_node_pk ON node (pk);`
 
 	if err = createTable(sq, "node", nodeTable, nodeIndex); err != nil {
 		return
@@ -105,14 +106,14 @@ func createTables(sq *sql.DB) (err error) {
                              AUTOINCREMENT
                              NOT NULL,
 
-        [key]                CHAR (66),
+        pk                   CHAR (66),
         address              CHAR (50),
         hide_from_discovery  INTEGER,
         allow_nodes          TEXT,
         version              CHAR (10),
 
-        created              DATETIME,
-        updated              DATETIME,
+        created_at           DATETIME,
+        updated_at           DATETIME,
 
         node_id              INTEGER,
 
@@ -120,7 +121,7 @@ func createTables(sq *sql.DB) (err error) {
     );`
 
 	const serviceIndex = `CREATE UNIQUE INDEX
-        idx_service_key ON service ("key");` // 'key' is SQLite3 keyword
+        idx_service_pk ON service (pk);`
 
 	const serviceNodeIdIndex = `CREATE INDEX
         idx_service_node_id ON service (node_id);`
@@ -136,7 +137,7 @@ func createTables(sq *sql.DB) (err error) {
 	// attributes table
 	//
 
-	const attributesTable = `CREATE TABLE attributes (
+	const attributesTable = `CREATE TABLE attribute (
         name        CHAR (20),
         service_id  INTEGER,
 
@@ -144,12 +145,12 @@ func createTables(sq *sql.DB) (err error) {
     );`
 
 	const attributesNameIndex = `CREATE INDEX
-        idx_attributes_name ON attributes (name);`
+        idx_attribute_name ON attribute (name);`
 
 	const attributesServiceIdIndex = `CREATE INDEX
-        idx_attributes_service_id ON attributes (service_id);`
+        idx_attribute_service_id ON attribute (service_id);`
 
-	err = createTable(sq, "attributes",
+	err = createTable(sq, "attribute",
 		attributesTable,
 		attributesNameIndex,
 		attributesServiceIdIndex)
