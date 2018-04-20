@@ -11,32 +11,55 @@ import (
 )
 
 const (
-	Address string = ":8080"
+	Address    string = ":8080"
+	DBPath     string = db.InMemory
+	RandomSeed string = ":random:"
 )
 
 func main() {
 
-	var address = Address
+	var (
+		address        = Address
+		dbPath         = DBPath
+		seedConfigPath = RandomSeed
+
+		help bool
+	)
 
 	flag.StringVar(&address,
 		"a",
 		address,
 		"listening address")
+	flag.StringVar(&dbPath,
+		"db-path",
+		dbPath,
+		"path to SQLite3 database")
+	flag.StringVar(&seedConfigPath,
+		"seed-config",
+		seedConfigPath,
+		"seed config: path to file or ':random:'")
+	flag.BoolVar(&help,
+		"h",
+		help,
+		"show help")
 	flag.Parse()
 
-	var m = newDiscovery()
+	if help == true {
+		flag.PrintDefaults()
+		return
+	}
 
-	// initialize SQLite3 DB
-	if err := db.Init(); err != nil {
+	var d, err = newDiscovery(dbPath, seedConfigPath)
+
+	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer d.Close()
 
 	// start discovery listener
-	if err := m.Listen(address); err != nil {
+	if err = d.m.Listen(address); err != nil {
 		log.Fatal(err)
 	}
-	defer m.Close()
 
 	waitInterrupt() // wait for SIGINT
 }
@@ -47,20 +70,48 @@ func waitInterrupt() {
 	<-sig
 }
 
-func newDiscovery() (m *factory.MessengerFactory) {
-	m = factory.NewMessengerFactory()
+type Discovery struct {
+	m  *factory.MessengerFactory
+	db *db.DB
+}
 
-	// use random seed every start
-	if err := m.SetDefaultSeedConfig(factory.NewSeedConfig()); err != nil {
-		panic(err)
+func newDiscovery(dbPath, seedConfigPath string) (d *Discovery, err error) {
+	d = new(Discovery)
+
+	d.m = factory.NewMessengerFactory()
+
+	if d.db, err = db.New(dbPath); err != nil {
+		d = nil
+		return
+	}
+
+	var sc *factory.SeedConfig
+
+	if seedConfigPath == RandomSeed {
+		sc = factory.NewSeedConfig()
+	} else {
+		if sc, err = factory.ReadSeedConfig(seedConfigPath); err != nil {
+			d = nil
+			return
+		}
+	}
+
+	if err = d.m.SetDefaultSeedConfig(sc); err != nil {
+		return
 	}
 
 	// use SQLite3 DB to keep information in
-	m.RegisterService = db.RegisterService
-	m.UnRegisterService = db.UnRegisterService
-	m.FindByAttributes = db.FindResultByAttrs
-	m.FindByAttributesAndPaging = db.FindResultByAttrsAndPaging
-	m.FindServiceAddresses = db.FindServiceAddresses
+	d.m.RegisterService = d.db.RegisterService
+	d.m.UnRegisterService = d.db.UnRegisterService
+	d.m.FindByAttributes = d.db.FindResultByAttrs
+	d.m.FindByAttributesAndPaging = d.db.FindResultByAttrsAndPaging
+	d.m.FindServiceAddresses = d.db.FindServiceAddresses
 
-	return m
+	return
+}
+
+// Close the Discovery
+func (d *Discovery) Close() (err error) {
+	d.m.Close()
+	return d.db.Close()
 }

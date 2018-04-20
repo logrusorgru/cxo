@@ -27,9 +27,9 @@ type DB struct {
 	db *sql.DB
 }
 
-// Init SQLite3 DB for discovery server. Provide
+// New SQLite3 DB for discovery server. Provide
 // db path o use InMemory constant
-func Init(dbPath string) (db *DB, err error) {
+func New(dbPath string) (db *DB, err error) {
 
 	var sq *sql.DB
 	if sq, err = sql.Open("sqlite3_with_foreign_keys", dbPath); err != nil {
