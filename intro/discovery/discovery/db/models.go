@@ -460,7 +460,7 @@ func (d *DB) findResultByAttrs(
       node.location,
       node.version,
       service.pk,
-      service.version,
+      service.version
     FROM node
     INNER JOIN service ON service.node_id = node.id
     INNER JOIN attribute ON attribute.service_id = service.id
@@ -611,63 +611,104 @@ func FindResultByAttrsAndPaging(
 	return
 }
 
+//
+// TODO (kostyarin): below
+//
+
+func pksToInterfaces(pks []cipher.PubKey) (is []interface{}) {
+
+	if len(pks) == 0 {
+		return
+	}
+
+	is = make([]interface{}, 0, len(pks))
+
+	for _, pk := range pks {
+		is = append(is, interface{}(pk.Hex()))
+	}
+
+	return
+}
+
 type NodeAndService struct {
 	Node
 	Service
 }
 
-func FindServiceAddresses(
+func (d *DB) FindServiceAddresses(
 	keys []cipher.PubKey,
 	exclude cipher.PubKey,
 ) (
 	result []*factory.ServiceInfo,
 ) {
 
-	appKeys := make([]string, len(keys))
-	for _, v := range keys {
-		appKeys = append(appKeys, v.Hex())
+	const selFormat = `SELECT
+      node.pk,
+      node.service_address,
+      service.pk
+    FROM node
+    INNER JOIN service ON service.node_id = node.id
+    WHERE node.pk != ?
+    AND service.pk IN (%s);`
+
+	if len(keys) == 0 {
+		return // nothing to find
 	}
 
-	excludeNodeKey := exclude.Hex()
-	ns := make([]NodeAndService, 0)
-	err := engine.Join("INNER", "service", "service.node_id = node.id").
-		Where("node.key != ?", excludeNodeKey).
-		In("service.key", appKeys).
-		Table("node").
-		Find(&ns)
+	var (
+		sel = fmt.Sprintf(selFormat, sqlInParams(len(keys)))
+
+		rows *sql.Rows
+		err  error
+	)
+
+	rows, err = d.db.Query(sel, exclude.Hex(), pksToInterfaces(keys)...)
 	if err != nil {
+		// TODO (kostyarin): handle the err
+		return
+	}
+	defer rows.Close()
+
+	var ss = make(map[cipher.PubKey][]*factory.NodeInfo)
+
+	for rows.Next() == true {
+
+		var nodePK, nodeServiceAddress, servicePK string
+
+		err = rows.Scan(&nodePK, &nodeServiceAddress, &servicePK)
+		if err != nil {
+			// TODO (kostyarin): handle the err
+			return
+		}
+
+		var nodeKey, appKey cipher.PubKey
+
+		if nodeKey, err = pubKeyFromHex(nodePK); err != nil {
+			continue // ?
+		}
+
+		if appKey, err = pubKeyFromHex(servicePK); err != nil {
+			continue // ?
+		}
+
+		var node = &factory.NodeInfo{
+			PubKey:  nodeKey,
+			Address: nodeServiceAddress,
+		}
+
+		ss[appKey] = append(ss[appKey], node)
+	}
+
+	if err = rows.Err(); err != nil {
+		// TODO (kostyarin): handle the err
 		return
 	}
 
-	ss := make(map[string][]*factory.NodeInfo)
-	for _, v := range ns {
-		nodeKey, err := cipher.PubKeyFromHex(v.Node.Key)
-		if err != nil {
-			continue
-		}
-		node := &factory.NodeInfo{
-			PubKey:  nodeKey,
-			Address: v.Node.ServiceAddress,
-		}
-		s, ok := ss[v.Service.Key]
-		if ok {
-			s = append(s, node)
-			ss[v.Service.Key] = s
-		} else {
-			nodes := make([]*factory.NodeInfo, 0)
-			nodes = append(nodes, node)
-			ss[v.Service.Key] = nodes
-		}
-	}
+	result = make([]*factory.ServiceInfo, 0, len(ss))
 
-	result = make([]*factory.ServiceInfo, 0)
 	for k, v := range ss {
-		serviceKey, err := cipher.PubKeyFromHex(k)
-		if err != nil {
-			continue
-		}
 		result = append(result, &factory.ServiceInfo{
-			PubKey: serviceKey,
+			PubKey: k,
 			Nodes:  v,
 		})
 	}
