@@ -399,6 +399,7 @@ func pubKeyFromHex(pks string) (pk cipher.PubKey, err error) {
 	}
 	if len(b) != len(cipher.PubKey{}) {
 		err = errors.New("invalid PubKey length")
+		return
 	}
 	pk = cipher.NewPubKey(b)
 	return

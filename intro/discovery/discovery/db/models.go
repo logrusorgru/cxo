@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -326,7 +327,7 @@ func (d *DB) RegisterService(
 	for _, v := range ns.Services {
 
 		var serviceID int64
-		if serviceID, err = d.serviceIDByPK(tx, v.Key.Hex()); err != nil {
+		if serviceID, err = d.serviceIDByPK(tx, v.Key); err != nil {
 			tx.Rollback()
 			return
 		}
@@ -437,6 +438,7 @@ func pubKeyFromHex(pks string) (pk cipher.PubKey, err error) {
 	}
 	if len(b) != len(cipher.PubKey{}) {
 		err = errors.New("invalid PubKey length")
+		return
 	}
 	pk = cipher.NewPubKey(b)
 	return
@@ -478,7 +480,7 @@ func (d *DB) findResultByAttrs(
 		rows *sql.Rows
 
 		inParams = sqlInParams(len(attrs))
-		args     = stringsToInterfaces(attrs...)
+		args     = stringsToInterfaces(attrs)
 	)
 
 	if limit == 0 && offset == 0 {
@@ -488,7 +490,7 @@ func (d *DB) findResultByAttrs(
 		args = append(args, offset, limit)
 	}
 
-	if rows, err = tx.Query(selFormat, args...); err != nil {
+	if rows, err = d.db.Query(selFormat, args...); err != nil {
 		return
 	}
 	defer rows.Close()
@@ -594,9 +596,9 @@ func (d *DB) FindResultByAttrs(
 	return
 }
 
-func FindResultByAttrsAndPaging(
+func (d *DB) FindResultByAttrsAndPaging(
 	pages, limit int,
-	attr ...string,
+	attrs ...string,
 ) (
 	result *factory.AttrNodesInfo,
 ) {
@@ -615,24 +617,25 @@ func FindResultByAttrsAndPaging(
 // TODO (kostyarin): below
 //
 
-func pksToInterfaces(pks []cipher.PubKey) (is []interface{}) {
+func argsForFind(
+	exclude cipher.PubKey,
+	pks []cipher.PubKey,
+) (
+	is []interface{},
+) {
 
 	if len(pks) == 0 {
 		return
 	}
 
-	is = make([]interface{}, 0, len(pks))
+	is = make([]interface{}, 0, len(pks)+1)
+	is = append(is, exclude)
 
 	for _, pk := range pks {
 		is = append(is, interface{}(pk.Hex()))
 	}
 
 	return
-}
-
-type NodeAndService struct {
-	Node
-	Service
 }
 
 func (d *DB) FindServiceAddresses(
@@ -662,7 +665,7 @@ func (d *DB) FindServiceAddresses(
 		err  error
 	)
 
-	rows, err = d.db.Query(sel, exclude.Hex(), pksToInterfaces(keys)...)
+	rows, err = d.db.Query(sel, argsForFind(exclude, keys)...)
 	if err != nil {
 		// TODO (kostyarin): handle the err
 		return
