@@ -2,7 +2,9 @@ package db
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/skycoin/net/skycoin-messenger/factory"
@@ -400,62 +402,159 @@ type NodeDetail struct {
 	Attributes
 }
 
-func FindResultByAttrs(attr ...string) (result *factory.AttrNodesInfo) {
+// returns "?,?,?"" depending of the count that shuldn't be 0
+func sqlInParams(count int) string {
 
-	sas := make([]NodeDetail, 0)
-	err := engine.Join("INNER", "service", "service.node_id = node.id").
-		Join("INNER", "attributes", "attributes.service_id = service.id").
-		In("attributes.name", attr).
-		Desc("node.priority").
-		Table("node").
-		Find(&sas)
-	if err != nil {
+	if count == 0 {
+		return ""
+	}
+
+	var b = make([]byte, 0, count*2-1)
+
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, '?')
+	}
+
+	return string(b)
+}
+
+func stringsToInterfaces(ss []string) (is []interface{}) {
+
+	if len(ss) == 0 {
 		return
 	}
 
-	atis := make(map[string]*factory.AttrNodeInfo)
-	for _, v := range sas {
-		nodeKey, err := cipher.PubKeyFromHex(v.Node.Key)
-		if err != nil {
-			continue
-		}
-		appKey, err := cipher.PubKeyFromHex(v.Service.Key)
-		if err != nil {
-			continue
-		}
-		ati, ok := atis[v.Service.Key]
-		if ok {
-			ati.AppInfos = append(ati.AppInfos, &factory.AttrAppInfo{})
-			atis[v.Service.Key] = ati
-		} else {
+	is = make([]interface{}, 0, len(ss))
 
-			appinfos := make([]*factory.AttrAppInfo, 0)
-			appinfos = append(appinfos, &factory.AttrAppInfo{
-				Key:     appKey,
-				Version: v.Service.Version,
-			})
-			apps := make([]cipher.PubKey, 0)
-			appsKey, err := cipher.PubKeyFromHex(v.Service.Key)
-			if err != nil {
-				continue
-			}
-			apps = append(apps, appsKey)
-			info := &factory.AttrNodeInfo{
-				Node:     nodeKey,
-				Apps:     apps,
-				Location: v.Node.Location,
-				Version:  v.Node.Version,
-				AppInfos: appinfos,
-			}
-			atis[v.Service.Key] = info
+	for _, s := range ss {
+		is = append(is, interface{}(s))
+	}
+
+	return
+}
+
+func pubKeyFromHex(pks string) (pk cipher.PubKey, err error) {
+	var b []byte
+	if b, err = hex.DecodeString(pks); err != nil {
+		return
+	}
+	if len(b) != len(cipher.PubKey{}) {
+		err = errors.New("invalid PubKey length")
+	}
+	pk = cipher.NewPubKey(b)
+	return
+}
+
+// TODO (kostyarin): error ignored? log?
+func (d *DB) FindResultByAttrs(
+	attrs ...string,
+) (
+	result *factory.AttrNodesInfo,
+) {
+
+	const selFormat = `SELECT
+      node.pk,
+      node.location,
+      node.version,
+      service.pk,
+      service.version,
+    FROM node
+    INNER JOIN service ON service.node_id = node.id
+    INNER JOIN attribute ON attribute.service_id = service.id
+    WHERE attribute.name IN (%s)
+    ORDER BY node.priority
+    DESC;`
+
+	if len(attrs) == 0 {
+		return // nothing to search for
+	}
+
+	var (
+		sel = fmt.Sprintf(selFormat, sqlInParams(len(attrs)))
+
+		rows *sql.Rows
+		err  error
+	)
+
+	rows, err = tx.Query(selFormat, stringsToInterfaces(attrs)...)
+	if err != nil {
+		// TODO (kostyarin): log about the err
+		return
+	}
+	defer rows.Close()
+
+	var atis = make(map[cipher.PubKey]*factory.AttrNodeInfo)
+
+	for rows.Next() == true {
+
+		var (
+			nodePK, nodeLocation, nodeVersion string
+			servicePK, serviceVersion         string
+		)
+
+		err = rows.Scan(&nodePK, &nodeLocation, &nodeVersion, &servicePK,
+			&serviceVersion)
+		if err != nil {
+			// TODO (kostyarin): log about the err
+			return
 		}
+
+		var nodeKey, appKey cipher.PubKey
+
+		if nodeKey, err = pubKeyFromHex(nodePK); err != nil {
+			continue // ?
+		}
+		if appKey, err = pubKeyFromHex(servicePK); err != nil {
+			continue // ?
+		}
+
+		var nodeVersions []string
+		if nodeVersions, err = deserializeStrings(nodeVersion); err != nil {
+			// TODO (kostyarin): log about the err
+			return
+		}
+
+		var ati, ok = atis[appKey]
+
+		//
+		// TODO (kostyarin): what the hell is below?
+		//
+
+		if ok == true {
+			ati.AppInfos = append(ati.AppInfos, &factory.AttrAppInfo{})
+		} else {
+			atis[appKey] = &factory.AttrNodeInfo{
+				Node:     nodeKey,
+				Apps:     []cipher.PubKey{appKey},
+				Location: nodeLocation,
+				Version:  nodeVersions,
+				AppInfos: []*factory.AttrAppInfo{
+					&factory.AttrAppInfo{
+						Key:     appKey,
+						Version: serviceVersion,
+					},
+				},
+			}
+		}
+
 	}
+
+	if err = rows.Err(); err != nil {
+		// TODO (kostyarin): log about the err
+		return
+	}
+
 	result = &factory.AttrNodesInfo{
-		Nodes: make([]*factory.AttrNodeInfo, 0),
+		Nodes: make([]*factory.AttrNodeInfo, 0, len(atis)),
 	}
-	for _, v := range atis {
-		result.Nodes = append(result.Nodes, v)
+
+	for _, ati := range atis {
+		result.Nodes = append(result.Nodes, ati)
 	}
+
 	return
 }
 
