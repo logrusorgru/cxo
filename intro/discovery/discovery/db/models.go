@@ -396,12 +396,6 @@ func (d *DB) RegisterService(
 	return tx.Commit()
 }
 
-type NodeDetail struct {
-	Node
-	Service
-	Attributes
-}
-
 // returns "?,?,?"" depending of the count that shuldn't be 0
 func sqlInParams(count int) string {
 
@@ -449,10 +443,16 @@ func pubKeyFromHex(pks string) (pk cipher.PubKey, err error) {
 }
 
 // TODO (kostyarin): error ignored? log?
-func (d *DB) FindResultByAttrs(
-	attrs ...string,
+//
+// if offset is 0 and limit is 0, then
+// no LIMIT used
+func (d *DB) findResultByAttrs(
+	offset int, //                    :
+	limit int, //                     :
+	attrs ...string, //               :
 ) (
-	result *factory.AttrNodesInfo,
+	result *factory.AttrNodesInfo, // :
+	err error, //                     :
 ) {
 
 	const selFormat = `SELECT
@@ -465,6 +465,7 @@ func (d *DB) FindResultByAttrs(
     INNER JOIN service ON service.node_id = node.id
     INNER JOIN attribute ON attribute.service_id = service.id
     WHERE attribute.name IN (%s)
+    %s
     ORDER BY node.priority
     DESC;`
 
@@ -473,15 +474,21 @@ func (d *DB) FindResultByAttrs(
 	}
 
 	var (
-		sel = fmt.Sprintf(selFormat, sqlInParams(len(attrs)))
-
+		sel  string
 		rows *sql.Rows
-		err  error
+
+		inParams = sqlInParams(len(attrs))
+		args     = stringsToInterfaces(attrs...)
 	)
 
-	rows, err = tx.Query(selFormat, stringsToInterfaces(attrs)...)
-	if err != nil {
-		// TODO (kostyarin): log about the err
+	if limit == 0 && offset == 0 {
+		sel = fmt.Sprintf(selFormat, inParams, "")
+	} else {
+		sel = fmt.Sprintf(selFormat, inParams, "LIMIT ?, ?")
+		args = append(args, offset, limit)
+	}
+
+	if rows, err = tx.Query(selFormat, args...); err != nil {
 		return
 	}
 	defer rows.Close()
@@ -498,7 +505,6 @@ func (d *DB) FindResultByAttrs(
 		err = rows.Scan(&nodePK, &nodeLocation, &nodeVersion, &servicePK,
 			&serviceVersion)
 		if err != nil {
-			// TODO (kostyarin): log about the err
 			return
 		}
 
@@ -513,7 +519,6 @@ func (d *DB) FindResultByAttrs(
 
 		var nodeVersions []string
 		if nodeVersions, err = deserializeStrings(nodeVersion); err != nil {
-			// TODO (kostyarin): log about the err
 			return
 		}
 
@@ -543,8 +548,23 @@ func (d *DB) FindResultByAttrs(
 	}
 
 	if err = rows.Err(); err != nil {
-		// TODO (kostyarin): log about the err
 		return
+	}
+
+	// count
+
+	if offset != 0 || limit != 0 {
+		const selCountFormat = `SELECT
+        COUNT (*)
+        FROM node
+        INNER JOIN service ON service.node_id = node.id
+        INNER JOIN attribute ON attribute.service_id = service.id
+        WHERE attribute.name IN (%s);`
+		sel = fmt.Sprintf(selCountFormat, inParams)
+		args = args[:len(args)-2] // remove offset and limit from the args
+		if err = d.db.QueryRow(sel, args...).Scan(&result.Count); err != nil {
+			return
+		}
 	}
 
 	result = &factory.AttrNodesInfo{
@@ -558,6 +578,22 @@ func (d *DB) FindResultByAttrs(
 	return
 }
 
+// TODO (kostyarin): handle error
+func (d *DB) FindResultByAttrs(
+	attrs ...string,
+) (
+	result *factory.AttrNodesInfo,
+) {
+
+	var err error
+	if result, err = d.findResultByAttrs(0, 0, attrs...); err != nil {
+		// TODO (kostyarin): log about the error
+		return
+	}
+
+	return
+}
+
 func FindResultByAttrsAndPaging(
 	pages, limit int,
 	attr ...string,
@@ -565,70 +601,13 @@ func FindResultByAttrsAndPaging(
 	result *factory.AttrNodesInfo,
 ) {
 
-	sas := make([]NodeDetail, 0)
-
-	err := engine.Join("INNER", "service", "service.node_id = node.id").
-		Join("INNER", "attributes", "attributes.service_id = service.id").
-		In("attributes.name", attr).
-		Limit(limit, (pages-1)*limit).
-		Desc("node.priority").
-		Table("node").
-		Find(&sas)
-
+	var err error
+	result, err = d.findResultByAttrs((pages-1)*limit, limit, attrs...)
 	if err != nil {
+		// TODO (kostyarin): log about the error
 		return
 	}
 
-	atis := make(map[string]*factory.AttrNodeInfo)
-	for _, v := range sas {
-		nodeKey, err := cipher.PubKeyFromHex(v.Node.Key)
-		if err != nil {
-			continue
-		}
-		appKey, err := cipher.PubKeyFromHex(v.Service.Key)
-		if err != nil {
-			continue
-		}
-		ati, ok := atis[v.Service.Key]
-		if ok {
-			ati.AppInfos = append(ati.AppInfos, &factory.AttrAppInfo{})
-			atis[v.Service.Key] = ati
-		} else {
-			appinfos := make([]*factory.AttrAppInfo, 0)
-			appinfos = append(appinfos, &factory.AttrAppInfo{
-				Key:     appKey,
-				Version: v.Service.Version,
-			})
-			apps := make([]cipher.PubKey, 0)
-			appsKey, err := cipher.PubKeyFromHex(v.Service.Key)
-			if err != nil {
-				continue
-			}
-			apps = append(apps, appsKey)
-			info := &factory.AttrNodeInfo{
-				Node:     nodeKey,
-				Apps:     apps,
-				Location: v.Node.Location,
-				Version:  v.Node.Version,
-				AppInfos: appinfos,
-			}
-			atis[v.Service.Key] = info
-		}
-	}
-	count, err := engine.Join("INNER", "service", "service.node_id = node.id").
-		Join("INNER", "attributes", "attributes.service_id = service.id").
-		In("attributes.name", attr).
-		Count(new(Node))
-	if err != nil {
-		return
-	}
-	result = &factory.AttrNodesInfo{
-		Nodes: make([]*factory.AttrNodeInfo, 0),
-		Count: count,
-	}
-	for _, v := range atis {
-		result.Nodes = append(result.Nodes, v)
-	}
 	return
 }
 
