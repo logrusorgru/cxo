@@ -12,71 +12,6 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
-type Node struct {
-	ID             int64
-	PK             string
-	ServiceAddress string
-	Location       string
-	Version        []string
-	Priority       int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
-// Scan *sql.Rows or *sql.Row
-func (n *Node) Scan(row sql.Scanner) (err error) {
-	//
-	return
-}
-
-type Service struct {
-	ID                int64
-	PK                string
-	Address           string
-	HideFromDiscovery bool
-	AllowNodes        []string
-	Version           string
-	NodeId            int64
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-type Attributes struct {
-	Name      string
-	ServiceID int64
-}
-
-/*
-
-func (d *DB) servicesIDsByNodeID(
-	tx *sql.Tx, //   :
-	nodeID int64, // :
-) (
-	sis []int64, //  : ids of services
-	err error, //    :
-) {
-
-	var rows *sql.Rows
-	rows, err = tx.Query(`SELECT id FROM service WHERE node_id = ?;`, nodeID)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id int64
-		if err = rows.Scan(&id); err != nil {
-			return
-		}
-		sis = append(sis, id)
-	}
-
-	err = rows.Err()
-	return
-}
-
-*/
-
 func (d *DB) UnRegisterService(pk cipher.PubKey) (err error) {
 
 	var tx *sql.Tx
@@ -321,8 +256,6 @@ func (d *DB) RegisterService(
 		tx.Rollback()
 		return
 	}
-
-	// TODO (kostyarin): -----
 
 	for _, v := range ns.Services {
 

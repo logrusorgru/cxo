@@ -84,7 +84,7 @@ func createTables(sq *sql.DB) (err error) {
         service_address  CHAR (50),
         location         CHAR (100),
         version          TEXT,
-        priority         INTEGER,
+        priority         INTEGER, -- never used
 
         created_at       DATETIME,
         updated_at       DATETIME
