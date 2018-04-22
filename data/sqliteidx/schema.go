@@ -3,35 +3,30 @@ package sqliteidx
 import (
 	"database/sql"
 	"time"
+
+	"github.com/skycoin/cxo/data"
+	"github.com/skycoin/skycoin/src/cipher"
+
+	"fmt" // tmeporary
 )
 
-type feed struct {
-	ID int64
-
-	PubKey string
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
+// tempoary
+func logSQL(query string, args ...interface{}) {
+	if false {
+		fmt.Println(append([]interface{}{("[SQL] " + query)}, args...)...)
+	}
 }
 
-type head struct {
-	ID int64
-
-	Nonce  uint64
-	FeedID int64
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
+// --------
 
 type root struct {
 	ID int64
 
 	Seq        uint64
 	HeadID     int64
-	AccessTime time.Time
-	Timestamp  time.Time
-	Prev       sql.NullString
+	AccessTime int64 // unix nano
+	Timestamp  int64 // uinx nano
+	Prev       string
 	Hash       string
 	Sig        string
 
@@ -39,15 +34,46 @@ type root struct {
 	UpdatedAt time.Time
 }
 
-func initializeDatabase(sq *sql.DB) (err error) {
+// Scan *sql.Rows those contains 'seq', 'access_time',
+// 'timestamp', 'prev', 'hash', 'sig' and 'created_at'
+// columns
+func (r *root) Scan(rows *sql.Rows) (err error) {
+	err = rows.Scan(
+		&r.Seq,        // }
+		&r.AccessTime, // }
+		&r.Timestamp,  // } the data.Root fields
+		&r.Prev,       // } --------------------
+		&r.Hash,       // }
+		&r.Sig,        // }
+		&r.CreatedAt,  // }
+	)
+	return
+}
 
-	if err = sq.Ping(); err != nil {
+// Root returns data.Root filled from the root
+func (r *root) Root() (dr *data.Root, err error) {
+	dr = new(data.Root)
+
+	dr.Create = r.CreatedAt.UnixNano()
+	dr.Access = r.AccessTime
+	dr.Time = r.Timestamp
+	dr.Seq = r.Seq
+
+	if dr.Prev, err = cipher.SHA256FromHex(r.Prev); err != nil {
 		return
 	}
 
-	const enableForeignKeys = `PRAGMA foreign_keys = ON;`
+	if dr.Hash, err = cipher.SHA256FromHex(r.Hash); err != nil {
+		return
+	}
 
-	if _, err = sq.Exec(enableForeignKeys); err != nil {
+	dr.Sig, err = cipher.SigFromHex(r.Sig)
+	return
+}
+
+func initializeDatabase(sq *sql.DB) (err error) {
+
+	if err = sq.Ping(); err != nil {
 		return
 	}
 
@@ -105,7 +131,7 @@ func initializeDatabase(sq *sql.DB) (err error) {
     );`
 
 	const headsNonceUniqueIndex = `CREATE UNIQUE INDEX
-        idx_head_nonce ON head (nonce);`
+        idx_head_nonce_feed_id ON head (nonce, feed_id);`
 
 	const headsFeedIdIndex = `CREATE INDEX
         idx_head_feed_id ON head (feed_id);`
@@ -134,15 +160,16 @@ func initializeDatabase(sq *sql.DB) (err error) {
         head_id      INTEGER
                      NOT NULL,
 
-        access_time  DATETIME
+        access_time  INTEGER
                      NOT NULL,
-        timestamp    UNSIGNED BIG INT
+        timestamp    INTEGER
                      NOT NULL,
-        prev         VARYING CHARACTER (64),
+        prev         VARYING CHARACTER (64)
+                     NOT NULL,
         hash         VARYING CHARACTER (64)
                      NOT NULL,
-    	sig          VARYING CHARACTER (130)
-    	             NOT NULL,
+        sig          VARYING CHARACTER (130)
+                     NOT NULL,
 
 
         created_at  DATETIME,
@@ -153,10 +180,10 @@ func initializeDatabase(sq *sql.DB) (err error) {
     );`
 
 	const rootsSeqUniqueIndex = `CREATE UNIQUE INDEX
-        idx_root_seq ON root (seq);`
+        idx_root_seq_head_id ON root (seq, head_id);`
 
 	const rootsHeadIdIndex = `CREATE INDEX
-        idx_root_head_id ON head (id);`
+        idx_root_head_id ON root (head_id);`
 
 	err = createTableIfNotExist(sq,
 		"root",
@@ -183,12 +210,14 @@ func createTableIfNotExist(
 
 	if exist == false {
 
-		if _, err = sql.Exec(create); err != nil {
+		//logSQL(create)
+		if _, err = sq.Exec(create); err != nil {
 			return
 		}
 
 		for _, idx := range indices {
-			if _, err = sql.Exec(idx); err != nil {
+			//logSQL(idx)
+			if _, err = sq.Exec(idx); err != nil {
 				return
 			}
 		}
@@ -204,6 +233,7 @@ func isTableExist(sq *sql.DB, name string) (exist bool, err error) {
     WHERE type = 'table'
     AND name = ?;`
 
+	//logSQL(sel, name)
 	err = sq.QueryRow(sel, name).Scan(&exist)
 	return
 }

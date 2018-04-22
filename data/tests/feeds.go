@@ -27,8 +27,12 @@ func FeedsAdd(t *testing.T, idx data.IdxDB) {
 
 	t.Run("add", func(t *testing.T) {
 		err := idx.Tx(func(feeds data.Feeds) (err error) {
-			if err = feeds.Add(pk); err != nil {
+			var hs data.Heads
+			if hs, err = feeds.Add(pk); err != nil {
 				return
+			}
+			if hs == nil {
+				t.Error("nil Heads after successful feeds.Add")
 			}
 			feedsHas(t, feeds, pk, true)
 			return
@@ -44,8 +48,12 @@ func FeedsAdd(t *testing.T, idx data.IdxDB) {
 
 	t.Run("twice", func(t *testing.T) {
 		err := idx.Tx(func(feeds data.Feeds) (err error) {
-			if err = feeds.Add(pk); err != nil {
+			var hs data.Heads
+			if hs, err = feeds.Add(pk); err != nil {
 				return
+			}
+			if hs == nil {
+				t.Error("nil Heads after successful feeds.Add")
 			}
 			feedsHas(t, feeds, pk, true)
 			return
@@ -194,7 +202,8 @@ func FeedsIterate(t *testing.T, idx data.IdxDB) {
 			err = feeds.Iterate(func(pk cipher.PubKey) (err error) {
 				called++
 				if called == 1 {
-					return feeds.Add(pk3)
+					_, err = feeds.Add(pk3)
+					return
 				}
 				return
 			})

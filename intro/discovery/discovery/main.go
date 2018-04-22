@@ -97,6 +97,7 @@ func newDiscovery(dbPath, seedConfigPath string) (d *Discovery, err error) {
 	}
 
 	if err = d.m.SetDefaultSeedConfig(sc); err != nil {
+		d = nil
 		return
 	}
 

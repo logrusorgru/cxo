@@ -1,4 +1,4 @@
-package idxdb
+package sqliteidx
 
 import (
 	"os"

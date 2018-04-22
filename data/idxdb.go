@@ -11,8 +11,10 @@ type IterateFeedsFunc func(cipher.PubKey) error
 // A Feeds represents bucket of feeds
 type Feeds interface {
 	// Add feed. Adding a feed twice or
-	// more times does nothing.
-	Add(pk cipher.PubKey) (err error)
+	// more times does nothing. The Add
+	// method returns related Heads or
+	// error if any
+	Add(pk cipher.PubKey) (hs Heads, err error)
 	// Del feed with all heads and Root objects
 	// unconditionally. If feed doesn't exist
 	// then the Del returns ErrNoSuchFeed.
@@ -33,7 +35,7 @@ type Feeds interface {
 	Heads(pk cipher.PubKey) (hs Heads, err error)
 
 	// Len is number of feeds stroed
-	Len() (length int)
+	Len() (length int, err error)
 }
 
 // An IterateHeadsFunc used to iterate over
@@ -62,11 +64,25 @@ type Heads interface {
 	Iterate(iterateFunc IterateHeadsFunc) (err error)
 
 	// Len is number of heads stored
-	Len() (length int)
+	Len() (length int, err error)
 }
 
 // An IterateRootsFunc represents function for
-// iterating over all Root objects of a feed
+// iterating over Root objects of a feed.
+// It's possible to add or remove Root inside
+// the IterateRootsFunc function.
+//
+// But underlying DB can handle add/remove
+// inside the IterateRootsFunc immediatly and
+// can handle it deffered. E.g., if you
+// delete first 10 Root objects in first loop,
+// then this function can be called 9 times with
+// deleted Root objects. And if you add 10 Root
+// objects in first loop, then this function can
+// skip this new Root objects.
+//
+// Short words, the function designed to work
+// with current Root.
 type IterateRootsFunc func(r *Root) (err error)
 
 // A Roots represents bucket of Root objects.
@@ -77,11 +93,13 @@ type Roots interface {
 	// Use ErrStopIteration to stop iteration. Any error
 	// (except the ErrStopIteration) returned by given
 	// IterateRootsFunc will be passed through. The
-	// Ascend doesn't update access time
+	// Ascend doesn't update access time of a Root.
+	// See also IterateRootsFunc docs.
 	Ascend(iterateFunc IterateRootsFunc) (err error)
 	// Descend is the same as the Ascend, but it iterates
 	// decending order. Use ErrStopIteration to stop
-	// iteration. The Descend doesn't update access time
+	// iteration. The Descend doesn't update access time.
+	// See also IterateRootsFunc docs.
 	Descend(iterateFunc IterateRootsFunc) (err error)
 
 	// Set adds new Root object to the DB. If an
@@ -107,7 +125,7 @@ type Roots interface {
 	Has(seq uint64) (ok bool, err error)
 
 	// Len is number of Root objects stored
-	Len() (length int)
+	Len() (length int, err error)
 }
 
 // An IdxDB repesents database that contains

@@ -2,18 +2,29 @@ package sqliteidx
 
 import (
 	"encoding/hex"
-	"io"
-	"os"
+	"errors"
 	"sync"
 	"time"
 
 	"database/sql"
-	_ "github.com/mattn/go-sqlite3" // SQLite 3 driver
+	"github.com/mattn/go-sqlite3" // SQLite 3 driver
 
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/skycoin/cxo/data"
 )
+
+func init() {
+	const enableForeignKeys = `PRAGMA foreign_keys = ON;`
+	sql.Register("sqlite3_with_foreign_keys",
+		&sqlite3.SQLiteDriver{
+			ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
+				logSQL(enableForeignKeys)
+				_, err = conn.Exec(enableForeignKeys, nil)
+				return
+			},
+		})
+}
 
 // InMemory is dbPath for NewIdxDB to use
 // database in memory
@@ -32,7 +43,7 @@ func NewIdxDB(dbPath string) (idx data.IdxDB, err error) {
 	var sq *sql.DB
 
 	// create or open SQLite3 DB
-	if sq, err = sql.Open("sqlite3", dbPath); err != nil {
+	if sq, err = sql.Open("sqlite3_with_foreign_keys", dbPath); err != nil {
 		return
 	}
 
@@ -58,42 +69,86 @@ func (d *db) Tx(txFunc func(feed data.Feeds) error) (err error) {
 
 	var tx *sql.Tx
 
+	logSQL("BEGIN;")
 	if tx, err = d.db.Begin(); err != nil {
 		return
 	}
 
 	if err = txFunc(&feeds{tx}); err != nil {
+		logSQL("ROLLBACK;")
 		tx.Rollback()
 		return
 	}
 
+	logSQL("COMMIT;")
 	return tx.Commit()
 }
 
 // Close database
 func (d *db) Close() error {
-	return d.sql.Close()
+	return d.db.Close()
 }
 
 type feeds struct {
 	tx *sql.Tx
 }
 
-func (f *feeds) Add(pk cipher.PubKey) (err error) {
+func (f *feeds) Add(pk cipher.PubKey) (hs data.Heads, err error) {
 
-	const insert = `INSERT OR IGNORE INTO feed
-    (pubkey, updated_at, created_at) VALUES (?, ?, ?);`
+	const sel = `SELECT id
+    FROM feed
+    WHERE pubkey = ?;`
 
-	var now = time.Now()
-	_, err = f.tx.Exec(insert, pk.Hex(), now, now)
+	const insert = `INSERT INTO feed (
+      pubkey,
+      updated_at,
+      created_at
+    ) VALUES (
+      ?,
+      ?,
+      ?
+    );`
+
+	var (
+		feedID int64
+		pkHex  = pk.Hex()
+	)
+
+	logSQL(sel, pkHex)
+	if err = f.tx.QueryRow(sel, pkHex).Scan(&feedID); err != nil {
+
+		if err == sql.ErrNoRows {
+
+			var (
+				result sql.Result
+				now    = time.Now()
+			)
+
+			logSQL(insert, pk.Hex(), now, now)
+			if result, err = f.tx.Exec(insert, pkHex, now, now); err != nil {
+				return
+			}
+			if feedID, err = result.LastInsertId(); err != nil {
+				return
+			}
+			hs = &heads{feedID: feedID, tx: f.tx}
+			return
+		}
+
+		return
+	}
+
+	hs = &heads{feedID: feedID, tx: f.tx}
 	return
 }
 
 func (f *feeds) Del(pk cipher.PubKey) (err error) {
 
-	const del = `DELETE FROM feed WHERE pubkey = ?;`
+	const del = `DELETE FROM feed
+    WHERE pubkey = ?;`
 
 	var result sql.Result
+	logSQL(del, pk.Hex())
 	if result, err = f.tx.Exec(del, pk.Hex()); err != nil {
 		return
 	}
@@ -122,6 +177,9 @@ func pubKeyFromHex(pks string) (pk cipher.PubKey, err error) {
 
 func (f *feeds) Iterate(iterateFunc data.IterateFeedsFunc) (err error) {
 
+	const sel = `SELECT pubkey
+    FROM feed;`
+
 	var (
 		pk  cipher.PubKey
 		pks string
@@ -129,12 +187,13 @@ func (f *feeds) Iterate(iterateFunc data.IterateFeedsFunc) (err error) {
 		rows *sql.Rows
 	)
 
-	if rows, err = f.tx.Query(`SELECT pubkey FROM feed;`); err != nil {
+	logSQL(sel)
+	if rows, err = f.tx.Query(sel); err != nil {
 		return
 	}
 	defer rows.Close()
 
-	for rows.Next() {
+	for rows.Next() == true {
 		if err = rows.Scan(&pks); err != nil {
 			return
 		}
@@ -154,21 +213,26 @@ func (f *feeds) Iterate(iterateFunc data.IterateFeedsFunc) (err error) {
 }
 
 func (f *feeds) Has(pk cipher.PubKey) (has bool, err error) {
-	err = f.tx.QueryRow(`SELECT COUNT(1) FROM feed WHERE pubkey = ?;`,
-		pk.Hex()).Scan(&has)
+
+	const sel = `SELECT COUNT(1)
+    FROM feed
+    WHERE pubkey = ?;`
+
+	logSQL(sel)
+	err = f.tx.QueryRow(sel, pk.Hex()).Scan(&has)
 	return
 }
 
 func (f *feeds) Heads(pk cipher.PubKey) (hs data.Heads, err error) {
 
-	var (
-		row    *sql.Row
-		feedID int64
-	)
+	const sel = `SELECT id
+    FROM feed
+    WHERE pubkey = ?;`
 
-	row = f.tx.QueryRow(`SELECT id FROM feed WHERE pubkey = ?;`, pk.Hex())
+	var feedID int64
 
-	if err = row.Scan(&feedID); err != nil {
+	logSQL(sel, pk.Hex())
+	if err = f.tx.QueryRow(sel, pk.Hex()).Scan(&feedID); err != nil {
 		if err == sql.ErrNoRows {
 			err = data.ErrNoSuchFeed
 		}
@@ -180,7 +244,12 @@ func (f *feeds) Heads(pk cipher.PubKey) (hs data.Heads, err error) {
 }
 
 func (f *feeds) Len() (length int, err error) {
-	err = f.tx.QueryRow(`SELECT COUNT(*) FROM feed;`, pk.Hex()).Scan(&length)
+
+	const sel = `SELECT COUNT(*)
+    FROM feed;`
+
+	logSQL(sel)
+	err = f.tx.QueryRow(sel).Scan(&length)
 	return
 }
 
@@ -191,12 +260,17 @@ type heads struct {
 
 func (h *heads) Roots(nonce uint64) (rs data.Roots, err error) {
 
+	const sel = `SELECT id FROM head
+    WHERE feed_id = ?
+    AND nonce = ?;`
+
 	var (
 		row    *sql.Row
 		headID int64
 	)
 
-	row = f.tx.QueryRow(`SELECT id FROM head WHERE nonce = ?;`, nonce)
+	logSQL(sel, h.feedID, nonce)
+	row = h.tx.QueryRow(sel, h.feedID, nonce)
 
 	if err = row.Scan(&headID); err != nil {
 		if err == sql.ErrNoRows {
@@ -205,28 +279,69 @@ func (h *heads) Roots(nonce uint64) (rs data.Roots, err error) {
 		return
 	}
 
-	rs = &roots{headID: headID, tx: f.tx}
+	rs = &roots{headID: headID, tx: h.tx}
 	return
 }
 
 func (h *heads) Add(nonce uint64) (rs data.Roots, err error) {
 
-	const insert = `INSERT OR IGNORE INTO head
-    (nonce, feed_id, updated_at, created_at) VALUES (?, ?, ?, ?);`
+	const sel = `SELECT id
+    FROM head
+    WHERE feed_id = ?
+    AND nonce = ?;`
 
-	var now = time.Now()
-	_, err = f.tx.Exec(insert, nonce, h.feedID, now, now)
-	return
+	const insert = `INSERT INTO head (
+      nonce,
+      feed_id,
+      updated_at,
+      created_at
+    ) VALUES (
+      ?,
+      ?,
+      ?,
+      ?);`
 
+	var (
+		result sql.Result
+		headID int64
+
+		now = time.Now()
+	)
+
+	logSQL(sel, h.feedID, nonce)
+	err = h.tx.QueryRow(sel, h.feedID, nonce).Scan(&headID)
+
+	if err != nil {
+
+		if err == sql.ErrNoRows {
+			logSQL(insert, nonce, h.feedID, now, now)
+			result, err = h.tx.Exec(insert, nonce, h.feedID, now, now)
+			if err != nil {
+				return
+			}
+			if headID, err = result.LastInsertId(); err != nil {
+				return
+			}
+			logSQL("after INSERT head_id is:", headID)
+			rs = &roots{headID: headID, tx: h.tx}
+		}
+
+		return
+	}
+
+	rs = &roots{headID: headID, tx: h.tx}
 	return
 }
 
 func (h *heads) Del(nonce uint64) (err error) {
 
-	const del = `DELETE FROM head WHERE nonce = ? AND feed_id = ?;`
+	const del = `DELETE FROM head
+    WHERE feed_id = ?
+    AND nonce = ?;`
 
 	var result sql.Result
-	if result, err = f.tx.Exec(del, nonce, h.feedID); err != nil {
+	logSQL(del, nonce, h.feedID)
+	if result, err = h.tx.Exec(del, nonce, h.feedID); err != nil {
 		return
 	}
 	var affected int64
@@ -241,24 +356,29 @@ func (h *heads) Del(nonce uint64) (err error) {
 
 func (h *heads) Has(nonce uint64) (ok bool, err error) {
 
-	const sel = `SELECT COUNT(1) FROM head
-        WHERE nonce = ?
-        AND feed_id = ?;`
+	const sel = `SELECT COUNT(1)
+    FROM head
+    WHERE feed_id = ?
+    AND nonce = ?;`
 
-	err = f.tx.QueryRow(sel, nonce, h.feedID).Scan(&ok)
+	logSQL(sel, nonce, h.feedID)
+	err = h.tx.QueryRow(sel, nonce, h.feedID).Scan(&ok)
 	return
 }
 
 func (h *heads) Iterate(iterateFunc data.IterateHeadsFunc) (err error) {
 
-	const sel = `SELECT nonce FROM head WHERE feed_id = ?;`
+	const sel = `SELECT nonce
+    FROM head
+    WHERE feed_id = ?;`
 
 	var (
 		nonce uint64
 		rows  *sql.Rows
 	)
 
-	if rows, err = f.tx.Query(sel, h.feedID); err != nil {
+	logSQL(sel, h.feedID)
+	if rows, err = h.tx.Query(sel, h.feedID); err != nil {
 		return
 	}
 	defer rows.Close()
@@ -280,7 +400,12 @@ func (h *heads) Iterate(iterateFunc data.IterateHeadsFunc) (err error) {
 }
 
 func (h *heads) Len() (length int, err error) {
-	const sel = `SELECT COUNT(*) FROM head WHERE feed_id = ?;`
+
+	const sel = `SELECT COUNT(*)
+    FROM head
+    WHERE feed_id = ?;`
+
+	logSQL(sel, h.feedID)
 	err = h.tx.QueryRow(sel, h.feedID).Scan(&length)
 	return
 }
@@ -290,45 +415,6 @@ type roots struct {
 	tx     *sql.Tx
 }
 
-func scanRoot(rows *sql.Rows) (dr *data.Root, err error) {
-	var rt root
-
-	err = rows.Scan(
-		&rt.Seq,
-		&rt.HeadID,
-		&rt.AccessTime,
-		&rt.Timestamp,
-		&rt.Prev,
-		&rt.Hash,
-		&rt.Sig,
-		&rt.CreatedAt,
-	)
-
-	if err != nil {
-		return
-	}
-
-	dr = new(data.Root)
-
-	dr.Create = rt.CreatedAt.UnixNano()
-	dr.Access = rt.AccessTime.UnixNano()
-	dr.Time = rt.Timestamp.UnixNano()
-	dr.Seq = rt.Seq
-
-	if rt.Prev.Valid == true {
-		if dr.Prev, err = cipher.SHA256FromHex(rt.Prev.String); err != nil {
-			return
-		}
-	}
-
-	if dr.Hash, err = cipher.SHA256FromHex(rt.Hash); err != nil {
-		return
-	}
-
-	dr.Sig, err = cipher.SigFromHex(rt.Sig)
-	return
-}
-
 func (r *roots) iterate(
 	dir string,
 	iterateFunc data.IterateRootsFunc,
@@ -336,33 +422,39 @@ func (r *roots) iterate(
 	err error,
 ) {
 
-	const sel = `SELECT (
-		seq,
-		head_id,
-		access_time,
-		timestamp,
-		prev,
-		hash,
-		sig,
-		created_at
-	)
-	FROM root
-	WHERE head_id = ?` // + ASC or DESC;
+	const sel = `SELECT
+      seq,
+      access_time,
+      timestamp,
+      prev,
+      hash,
+      sig,
+      created_at
+    FROM root
+    WHERE head_id = ?
+    ORDER BY seq
+    ` // + ASC or DESC + ;
 
-	var (
-		nonce uint64
-		rows  *sql.Rows
-	)
+	var rows *sql.Rows
 
-	if rows, err = f.tx.Query(sel+" "+dir+";", r.headID); err != nil {
+	logSQL(sel+dir+";", r.headID)
+	if rows, err = r.tx.Query(sel+dir+";", r.headID); err != nil {
 		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 
-		var dr *data.Root
-		if dr, err = scanRoot(rows); err != nil {
+		var (
+			r  root
+			dr *data.Root
+		)
+
+		if err = r.Scan(rows); err != nil {
+			return
+		}
+
+		if dr, err = r.Root(); err != nil {
 			return
 		}
 
@@ -387,34 +479,209 @@ func (r *roots) Descend(iterateFunc data.IterateRootsFunc) error {
 	return r.iterate("DESC", iterateFunc)
 }
 
-func (r *roots) Set(dr *data.Root) (err error) {
-	//
+func (r *roots) insertRoot(dr *data.Root) (err error) {
+
+	const insert = `INSERT INTO root (
+      seq,
+      head_id,
+      access_time,
+      timestamp,
+      prev,
+      hash,
+      sig,
+      created_at,
+      updated_at
+    ) VALUES (
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      ?);`
+
+	var now = time.Now()
+
+	dr.Access = now.UnixNano()
+	dr.Create = dr.Access
+
+	logSQL(insert, dr.Seq, r.headID, now.UnixNano(), dr.Time, dr.Prev.Hex(),
+		dr.Hash.Hex(), dr.Sig.Hex(), now, now)
+	_, err = r.tx.Exec(insert,
+		dr.Seq,         // seq            (uint64)
+		r.headID,       // reference      (int64)
+		now.UnixNano(), // aceess_time    (int64)
+		dr.Time,        // root timestamp (int64)
+		dr.Prev.Hex(),  // prev           (text)
+		dr.Hash.Hex(),  // hash           (text)
+		dr.Sig.Hex(),   // sig            (text)
+		now,            // created_at     (time.Time)
+		now,            // updated_at     (time.Time)
+	)
+
 	return
 }
 
+func (r *roots) updateRoot(rootID int64, dr *data.Root) (err error) {
+
+	const update = `UPDATE root
+    SET
+      access_time = ?,
+      updated_at = ?
+    WHERE id = ?;`
+
+	var now = time.Now()
+
+	logSQL(update, now.UnixNano(), now, rootID)
+	_, err = r.tx.Exec(update, now.UnixNano(), now, rootID)
+	return
+}
+
+func (r *roots) Set(dr *data.Root) (err error) {
+
+	if err = dr.Validate(); err != nil {
+		return
+	}
+
+	const sel = `SELECT
+      id,
+      access_time,
+      created_at
+    FROM root
+    WHERE head_id = ?
+    AND seq = ?;`
+
+	logSQL(sel, r.headID, dr.Seq)
+
+	var (
+		rootID     int64
+		accessTime int64
+		createTime time.Time
+
+		row = r.tx.QueryRow(sel, r.headID, dr.Seq)
+	)
+
+	if err = row.Scan(&rootID, &accessTime, &createTime); err != nil {
+
+		if err == sql.ErrNoRows {
+			return r.insertRoot(dr)
+		}
+
+		return
+	}
+
+	dr.Access = accessTime
+	dr.Create = createTime.UnixNano()
+
+	return r.updateRoot(rootID, dr)
+}
+
 func (r *roots) Del(seq uint64) (err error) {
-	const del = `DELETE FROM root WHERE seq = ? AND head_id = ?;`
-	_, err = f.tx.Exec(del, seq, r.headID)
+
+	const del = `DELETE FROM root
+    WHERE seq = ?
+    AND head_id = ?;`
+
+	logSQL(del, seq, r.headID)
+	_, err = r.tx.Exec(del, seq, r.headID)
 	return
 }
 
 func (r *roots) Get(seq uint64) (dr *data.Root, err error) {
-	//
+
+	const sel = `SELECT
+      id,
+      access_time,
+      timestamp,
+      prev,
+      hash,
+      sig,
+      created_at
+    FROM root
+    WHERE head_id = ?
+    AND seq = ?;`
+
+	logSQL(sel, r.headID, seq)
+	var (
+		row = r.tx.QueryRow(sel, r.headID, seq)
+
+		id         int64
+		accessTime int64
+		timestamp  int64
+		prev       string
+		hash       string
+		sig        string
+		created    time.Time
+	)
+
+	err = row.Scan(
+		&id,
+		&accessTime,
+		&timestamp,
+		&prev,
+		&hash,
+		&sig,
+		&created,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			err = data.ErrNotFound
+		}
+		return
+	}
+
+	dr = new(data.Root)
+	dr.Create = created.UnixNano()
+	dr.Access = accessTime
+	dr.Time = timestamp
+	dr.Seq = seq
+
+	// can panic (fuck it)
+	if dr.Prev, err = cipher.SHA256FromHex(prev); err != nil {
+		return
+	}
+
+	// can panic (fuck it)
+	if dr.Hash, err = cipher.SHA256FromHex(hash); err != nil {
+		return
+	}
+
+	// can panic (fuck it)
+	if dr.Sig, err = cipher.SigFromHex(sig); err != nil {
+		return
+	}
+
+	const update = `UPDATE root
+    SET access_time = ?
+    WHERE id = ?;`
+
+	logSQL(update, time.Now().UnixNano(), id)
+	_, err = r.tx.Exec(update, time.Now().UnixNano(), id)
 	return
 }
 
 func (r *roots) Has(seq uint64) (ok bool, err error) {
 
-	const sel = `SELECT COUNT(1) FROM root
-        WHERE seq = ?
-        AND head_id = ?;`
+	const sel = `SELECT COUNT(1)
+    FROM root
+    WHERE seq = ?
+    AND head_id = ?;`
 
-	err = f.tx.QueryRow(sel, seq, r.headID).Scan(&ok)
+	logSQL(sel, seq, r.headID)
+	err = r.tx.QueryRow(sel, seq, r.headID).Scan(&ok)
 	return
 }
 
 func (r *roots) Len() (length int, err error) {
-	const sel = `SELECT COUNT(*) FROM root WHERE head_id = ?;`
-	err = h.tx.QueryRow(sel, r.headID).Scan(&length)
+
+	const sel = `SELECT COUNT(*)
+    FROM root
+    WHERE head_id = ?;`
+
+	logSQL(sel, r.headID)
+	err = r.tx.QueryRow(sel, r.headID).Scan(&length)
 	return
 }
