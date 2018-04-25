@@ -2,6 +2,7 @@ package data
 
 import (
 	"errors"
+	"time"
 
 	"github.com/skycoin/skycoin/src/cipher"
 	"github.com/skycoin/skycoin/src/cipher/encoder"
@@ -57,28 +58,30 @@ func NewDB(cxds CXDS, idxdb IdxDB) *DB {
 // A Root represents meta information
 // of a saved skyobject.Root
 type Root struct {
-	Create int64 // received or saved at
-	Access int64 // last access time
+	// Hash of the Root
+	Hash cipher.SHA256
+	// Sig contains signature
+	// of the Root
+	Sig cipher.Sig
 
-	Time int64 // timestamp of the Root
+	// Access contains last
+	// access time in DB
+	Access time.Time
+	// Create contains time whie the
+	// Root has been saved in DB
+	Create time.Time
+}
 
-	Seq  uint64        // seq number of this Root
-	Prev cipher.SHA256 // previous Root or empty if seq == 0
-
-	Hash cipher.SHA256 // hash of the Root
-	Sig  cipher.Sig    // signature of the Root
+// root used to encode and decode the Root
+type root struct {
+	Hash   cipher.SHA256 // hash
+	Sig    cipher.Sig    // sig
+	Access int64         // unix nano
+	Create int64         // unix nano
 }
 
 // Validate the Root
 func (r *Root) Validate() (err error) {
-	if r.Seq == 0 {
-		if r.Prev != (cipher.SHA256{}) {
-			return errors.New("(idxdb.Root.Validate) unexpected Prev hash")
-		}
-	} else if r.Prev == (cipher.SHA256{}) {
-		return errors.New("(idxdb.Root.Validate) missing Prev hash")
-	}
-
 	if r.Hash == (cipher.SHA256{}) {
 		return errors.New("(idxdb.Root.Validate) empty Hash")
 	}
@@ -86,18 +89,142 @@ func (r *Root) Validate() (err error) {
 	if r.Sig == (cipher.Sig{}) {
 		return errors.New("(idxdb.Root.Validate) empty Sig")
 	}
-	if r.Time == 0 {
-		return errors.New("(idxdb.Root.Validate) zero timestamp")
-	}
+	return
+}
+
+// Touch updates last access time of the Root
+// returning previous access time
+func (r *Root) Touch() (access time.Time) {
+	access = r.Access
+	r.Access = time.Now()
 	return
 }
 
 // Encode the Root
 func (r *Root) Encode() (p []byte) {
-	return encoder.Serialize(r)
+	var s root
+	s.Hash = r.Hash
+	s.Sig = r.Sig
+
+	if r.Access.IsZero() == false {
+		s.Access = r.Access.UnixNano()
+	}
+
+	if r.Create.IsZero() == false {
+		s.Create = r.Create.UnixNano()
+	}
+
+	return encoder.Serialize(&s)
 }
 
-// Decode given encoded Root to this one
+// Decode given encoded Root to this one.
+// The Decode method never check input
+// length and if the input is longer
+// then encoded value, then no error
+// returned
 func (r *Root) Decode(p []byte) (err error) {
-	return encoder.DeserializeRaw(p, r)
+
+	var s root
+	if err = encoder.DeserializeRaw(p, &s); err != nil {
+		return
+	}
+
+	r.Hash = s.Hash
+	r.Sig = s.Sig
+
+	if s.Access == 0 {
+		r.Access = time.Time{}
+	} else {
+		r.Access = time.Unix(0, s.Access)
+	}
+
+	if s.Create == 0 {
+		r.Create = time.Time{}
+	} else {
+		r.Create = time.Unix(0, s.Create)
+	}
+
+	return
+}
+
+// Object represents CX object
+type Object struct {
+	Val    []byte    // encoded value
+	RC     int64     // references counter
+	Access time.Time // last access time
+	Create time.Time // created at
+	User   []byte    // user provided meta-information (string)
+}
+
+type object struct {
+	Val    []byte
+	RC     int64
+	Access int64 // unix nano
+	Create int64 // unix nano
+	User   []byte
+}
+
+// Encode the Object to []bye
+func (o *Object) Encode() (b []byte) {
+
+	var obj object
+
+	obj.Val = o.Val
+	obj.RC = o.RC
+
+	if o.Access.IsZero() == false {
+		obj.Access = o.Access.UnixNano()
+	}
+
+	if o.Create.IsZero() == false {
+		obj.Create = o.Create.UnixNano()
+	}
+
+	obj.User = o.User
+
+	return encoder.Serialize(&obj)
+}
+
+// Decode the Object from given []byte. The Decode
+// method never check input length, i.e. if input
+// is longer then encoded Object then the Decode
+// method doesn't return an error
+func (o *Object) Decode(p []byte) (err error) {
+
+	var obj object
+	if err = encoder.DeserializeRaw(p, &obj); err != nil {
+		return
+	}
+
+	o.Val = obj.Val
+	o.RC = obj.RC
+
+	if obj.Access == 0 {
+		o.Access = time.Time{} // reset existing value to zero time
+	} else {
+		o.Access = time.Unix(0, obj.Access)
+	}
+
+	if obj.Create == 0 {
+		o.Create = time.Time{} // reset existing value to zero time
+	} else {
+		o.Create = time.Unix(0, obj.Create)
+	}
+
+	o.User = obj.User
+	return
+}
+
+// Touch updates last access time of the Object
+// returning previous last access time
+func (o *Object) Touch() (lastAccess time.Time) {
+	lastAccess = o.Access
+	o.Access = time.Now()
+	return
+}
+
+// Incr incr- or decrements RC usign provided value
+func (o *Object) Incr(incrBy int64) (rc int64) {
+	o.RC += incrBy
+	return o.RC
 }

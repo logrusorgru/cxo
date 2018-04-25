@@ -1,21 +1,22 @@
 package data
 
 import (
+	"time"
+
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
 // An IterateObjectsFunc used to iterate over objects
 // of the CXDS. All arguments are read only and must
 // not be modified.
-type IterateObjectsFunc func(key cipher.SHA256, rc uint32, val []byte) error
+type IterateObjectsFunc func(key cipher.SHA256, obj *Object) (err error)
 
 // An IterateObjectsDelFunc used to iterate over objects
 // deleting them by choose. All arguments are read only
 // and must not be modified.
 type IterateObjectsDelFunc func(
 	key cipher.SHA256,
-	rc uint32,
-	val []byte,
+	obj *Object,
 ) (
 	del bool,
 	err error,
@@ -41,38 +42,113 @@ type IterateObjectsDelFunc func(
 // is ability to continue an iteration after pause.
 type CXDS interface {
 
-	// Get and change references counter (rc). If the
-	// inc argument is zero then the rc will be leaved
-	// as is. If value with given key doesn't exist, then
-	// the Get method returns (nil, 0, data.ErrNotFound).
-	// Use negative inc argument to reduce the rc and
-	// positive to increase it
-	Get(key cipher.SHA256, inc int) (val []byte, rc uint32, err error)
+	// Touch object by its key updating its last access time.
+	// The Touch method returns ErrNotFound if object doesn't
+	// exist. The Touch returns previous last access time.
+	Touch(key cipher.SHA256) (access time.Time, err error)
 
-	// Set and change references counter (rc). If the inc
-	// argument is negative or zero, then the Set method
-	// panics. Other words, the Set method used to create
-	// and increase the rc (increase at least by one). E.g.
-	// it's impossible to set vlaue with zero-rc
-	Set(key cipher.SHA256, val []byte, inc int) (rc uint32, err error)
+	// Get methods used to obtain an object. If object dosn't
+	// exist, then Get methods return ErrNotFound.
+	//
+	// Get Object by key updating its last access time.
+	// Result contains previous last access time.
+	Get(key cipher.SHA256) (obj *Object, err error)
+	// GetIncr is the same as the Get but it changes
+	// references counter using provided argument.
+	// Result contains new RC values.
+	GetIncr(key cipher.SHA256, incrBy int64) (obj *Object, err error)
+	// GetNotTouch is the same as the Get but it
+	// doesn't update last access time.
+	GetNotTouch(key cipher.SHA256) (obj *Object, err error)
+	// GetIncNotTouch is the same as the GetIncr but
+	// it doesn't update last access time.
+	GetIncrNotTouch(key cipher.SHA256, incrBy int64) (obj *Object, err error)
 
-	// Inc increments or decrements (if given inc is negative)
-	// references count for value with given key. If given
-	// inc argument is zero, then the Inc method checks
-	// presence of the value. E.g. if it returns ErrNotFound
-	// then value doesn't exist. The Inc returns new rc
-	Inc(key cipher.SHA256, inc int) (rc uint32, err error)
+	// Set methods used to create new object. If object alrady
+	// exists then the Set method increments RC by 1 (except
+	// SetIncr and SetIncrNotTouch). Result allways contains
+	// new RC and previous last access time.
+	//
+	// Set creates new object or updates existsing.
+	Set(key cipher.SHA256, val []byte, user string) (obj *Object, err error)
+	// SetIncr uses provided inrBy argument to change
+	// RC of object. If object already exists, then
+	// no auto +1 added. The SetIncr with `incrBy = 1`
+	// is the same as the Set.
+	SetIncr(
+		key cipher.SHA256, // : hash of the object
+		val []byte, //        : encoded object
+		incrBy int64, //      : inc- or decrement RC by this value
+		user string, //       : user provided meta information
+	) (
+		obj *Object, //       : object with new RC and previous last access time
+		err error, //         : error if any
+	)
+	// SetNotTouch is the same as the Set but it
+	// doesn't update last access time.
+	SetNotTouch(
+		key cipher.SHA256, // : hash of the object
+		val []byte, //        : encoded object
+		user string, //       : user provided meta information
+	) (
+		obj *Object, //       : object with new RC and previous last access time
+		err error, //         : error if any
+	)
+	// SetIncrNotTouch is the same as the SetIncr but
+	// it doesn't update last access time.
+	SetIncrNotTouch(
+		key cipher.SHA256, // : hash of the object
+		val []byte, //        : encoded object
+		incrBy int64, //      : inc- or decrement RC by this value
+		user string, //       : user provided meta information
+	) (
+		obj *Object, //       : object with new RC and previous last access time
+		err error, //         : error if any
+	)
+
+	// Incr methods used to change RC of an object
+	// returning new RC or error if any. If object
+	// doesn't exist then Incr methods return
+	// ErrNotFound error.
+	//
+	// Incr inc- or decrements RC of object with given
+	// key using provided value. The Incr returns new
+	// RC or error if any.
+	Incr(
+		key cipher.SHA256, // : hash of the object
+		incrBy int64, //      : inr- or decrement by
+	) (
+		rc int64, //          : new RC
+		access time.Time, //  : previous last access time
+		err error, //         : error if any
+	)
+	// IncrNotTouch is the same as the Incr but it
+	// doesn't update last access time.
+	IncrNotTouch(
+		key cipher.SHA256, // : hash of the object
+		incrBy int64, //      : inr- or decrement by
+	) (
+		rc int64, //          : new RC
+		access time.Time, //  : previous last access time
+		err error, //         : error if any
+	)
+
+	// Del deletes an object unconditionally returinig:
+	// (1) deleted object, (2) ErrNotFound if object
+	// doesn't exist (3) any other error (DB failure,
+	// for exmple)
+	Del(key cipher.SHA256) (obj *Object, err error)
 
 	// Iterate all keys in CXDS. Use ErrStopIteration to stop
 	// an iteration. The Iterate method never lock DB and any
-	// parallel Get/Set/Inc/Del call can be performed with call
-	// of the Iterate at the same time. The Iterate guarantees
-	// that all elements of DB will be iterated inclusive or
-	// exclusive elements created during call of the Iterate
-	// method. And exclusive elements deleted during call of
-	// the Iterate method. Any order is not guaranteed. The
-	// Iterate can lock DB by time of the IterateObjectsFunc
-	// call. See also docs for the IterateObjectsFunc.
+	// parallel Get-/Set-/Incr-/Del call can be performed with
+	// call of the Iterate at the same time. The Iterate
+	// method can skip elements created during its call.
+	// But the Iterate never called for deleted obejcts.
+	// Any order is not guaranteed. The Iterate can lock DB
+	// by time of the IterateObjectsFunc call. The Iterate
+	// method never updates access time. See also docs
+	// for the IterateObjectsFunc.
 	Iterate(iterateFunc IterateObjectsFunc) (err error)
 
 	// IterateDel used to remove objects. See also docs for
@@ -80,22 +156,21 @@ type CXDS interface {
 	// the Iterate (e.g. don't lock DB allowing long calls).
 	IterateDel(iterateFunc IterateObjectsDelFunc) error
 
-	// Del removes object with given key unconditionally.
-	// The Del method doesn't return an error if object
-	// doesn't exist. Handle with care.
-	Del(key cipher.SHA256) (err error)
-
 	//
 	// Stat
 	//
 
-	// Amount of objects.
+	// Amount of objects. The 'all' means amount of all objects
+	// and the 'used' is amount of objects with RC greater then
+	// zero.
 	Amount() (all, used int)
 	// Volume of objects. The volume measured
 	// in bytes. The volume consist of payload
 	// only and not includes keys and any other
 	// meta information like references counter
-	// etc.
+	// etc. The 'all' is volume of all obejcts,
+	// and the 'used' is volume of objects with
+	// RC greater then zero.
 	Volume() (all, used int)
 
 	// IsSafeClosed is flag that means that DB has been

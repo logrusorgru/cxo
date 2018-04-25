@@ -229,7 +229,8 @@ func createTableIfNotExist(
 
 func isTableExist(sq *sql.DB, name string) (exist bool, err error) {
 
-	const sel = `SELECT COUNT(*) FROM sqlite_master
+	const sel = `SELECT COUNT(*)
+    FROM sqlite_master
     WHERE type = 'table'
     AND name = ?;`
 

@@ -78,3 +78,6 @@ intro/cleanup/cleanup
 *.bolt
 *.sqlite3
 *.badger
+
+# redis dump
+*.rdb
