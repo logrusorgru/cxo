@@ -1,26 +1,42 @@
 package rediscxds
 
 import (
-	"github.com/mediocregopher/radix.v3"
+	"bufio"
+	"fmt"
+	"time"
 
 	"github.com/skycoin/cxo/data"
 	"github.com/skycoin/skycoin/src/cipher"
+
+	"github.com/mediocregopher/radix.v3"
+	"github.com/mediocregopher/radix.v3/resp"
 )
 
-type redisCXDS struct {
-	client       *radix.Pool // conenctions pool
+// Convention
+//   - if 'create' field is zero (that is equal to time.Time{})
+//     then object doesn't exist
+
+// A Redis implments data.CXDS
+// interface over Redis database.
+type Redis struct {
+	pool         *radix.Pool // conenctions pool
 	isSafeClosed bool        // current state
+
+	// LRU timeout feature
+	expire     time.Duration //
+	expireFunc ExpireFunc    //
+
+	hooks
 }
 
 // NewCXDS creates CXDS based on Redis
 func NewCXDS(
-	network string,
-	addr string,
-	size int,
-	opts ...radix.PoolOpt,
+	network string, // : "tcp", "tcp4" or "tcp6"
+	addr string, //    : address of Redis server
+	conf *Config, //   : configurations
 ) (
-	ds data.CXDS,
-	err error,
+	ds data.CXDS, //   : the data.CXDS
+	err error, //      : error if any
 ) {
 
 	var pool *radix.Pool
@@ -28,8 +44,8 @@ func NewCXDS(
 		return
 	}
 
-	var rc redisCXDS
-	rc.client = pool
+	var rc Redis
+	rc.pool = pool
 
 	if rc.isSafeClosed, err = rc.getSafeClosed(); err != nil {
 		pool.Close()
@@ -45,90 +61,95 @@ func NewCXDS(
 	return
 }
 
-func (r *redisCXDS) setSafeClosed(t bool) (err error) {
-	err = r.client.Do(radix.FlatCmd(nil, "SET", "safeClosed", t))
+func (r *Redis) setSafeClosed(t bool) (err error) {
+	err = r.pool.Do(radix.FlatCmd(nil, "SET", "safeClosed", t))
 	return
 }
 
-func (r *redisCXDS) getSafeClosed() (safeClosed bool, err error) {
-	err = r.client.Do(radix.FlatCmd(&safeClosed, "GET", "safeClosed"))
+func (r *Redis) getSafeClosed() (safeClosed bool, err error) {
+	err = r.pool.Do(radix.FlatCmd(&safeClosed, "GET", "safeClosed"))
 	return
 }
 
-// read-only Get
-func (r *redisCXDS) get(key cipher.SHA256) (val []byte, rc uint32, err error) {
-	//
-	err = r.client.Do(radix.FlatCmd(rcv, "HMGET", key.Hex()))
-	return
-}
+// =============================================================================
+// -----------------------------------------------------------------------------
 
-func (r *redisCXDS) Get(
-	key cipher.SHA256,
-	inc int,
-) (
-	val []byte,
-	rc uint32,
-	err error,
-) {
 
-	if inc == 0 {
-		//
-	} else {
-		//
-	}
 
-	return
-}
 
-func (r *redisCXDS) Set(
-	key cipher.SHA256,
-	val []byte,
-	inc int,
-) (
-	rc uint32,
-	err error,
-) {
-	//
-	return
-}
+	Touch(key cipher.SHA256) (access time.Time, err error)
 
-func (r *redisCXDS) Inc(key cipher.SHA256, inc int) (rc uint32, err error) {
-	//
-	return
-}
+	Get(key cipher.SHA256) (obj *Object, err error)
+	GetIncr(key cipher.SHA256, incrBy int64) (obj *Object, err error)
+	GetNotTouch(key cipher.SHA256) (obj *Object, err error)
+	GetIncrNotTouch(key cipher.SHA256, incrBy int64) (obj *Object, err error)
 
-func (r *redisCXDS) Iterate(iterateFunc IterateObjectsFunc) (err error) {
-	//
-	return
-}
+	Set(key cipher.SHA256, val []byte) (obj *Object, err error)
+	SetIncr(
+		key cipher.SHA256, // : hash of the object
+		val []byte, //        : encoded object
+		incrBy int64, //      : inc- or decrement RC by this value
+	) (
+		obj *Object, //       : object with new RC and previous last access time
+		err error, //         : error if any
+	)
+	SetNotTouch(
+		key cipher.SHA256, // : hash of the object
+		val []byte, //        : encoded object
+	) (
+		obj *Object, //       : object with new RC and previous last access time
+		err error, //         : error if any
+	)
+	SetIncrNotTouch(
+		key cipher.SHA256, // : hash of the object
+		val []byte, //        : encoded object
+		incrBy int64, //      : inc- or decrement RC by this value
+	) (
+		obj *Object, //       : object with new RC and previous last access time
+		err error, //         : error if any
+	)
+	SetRaw(key cipher.SHA256, obj *Object) (err error)
 
-func (r *redisCXDS) IterateDel(iterateFunc IterateObjectsDelFunc) error {
-	//
-	return
-}
+	Incr(
+		key cipher.SHA256, // : hash of the object
+		incrBy int64, //      : inr- or decrement by
+	) (
+		rc int64, //          : new RC
+		access time.Time, //  : previous last access time
+		err error, //         : error if any
+	)
+	IncrNotTouch(
+		key cipher.SHA256, // : hash of the object
+		incrBy int64, //      : inr- or decrement by
+	) (
+		rc int64, //          : new RC
+		access time.Time, //  : previous last access time
+		err error, //         : error if any
+	)
 
-func (r *redisCXDS) Del(key cipher.SHA256) (err error) {
-	//
-	return
-}
+	Take(key cipher.SHA256) (obj *Object, err error)
+	Del(key cipher.SHA256) (err error)
 
-func (r *redisCXDS) Amount() (all, used int) {
-	//
-	return
-}
+	Iterate(iterateFunc IterateObjectsFunc) (err error)
+	IterateDel(iterateFunc IterateObjectsDelFunc) error
 
-func (r *redisCXDS) Volume() (all, used int) {
-	//
-	return
-}
+	Amount() (all, used int64)
+	Volume() (all, used int64)
 
-// IsSafeClosed last time
-func (r *redisCXDS) IsSafeClosed() (safeClosed bool) {
+
+// -----------------------------------------------------------------------------
+// =============================================================================
+
+// IsSafeClosed is flag that means that DB has been
+// closed successfully last time. If the IsSafeClosed
+// returns false, then may be some repair required (it
+// depends).
+func (r *Redis) IsSafeClosed() (safeClosed bool) {
 	return r.isSafeClosed
 }
 
 // Close the CXDS
-func (r *redisCXDS) Close() (err error) {
+func (r *Redis) Close() (err error) {
 
 	err = r.client.Do(radix.FlatCmd(nil, "SET", "safeClosed", true))
 	if err != nil {

@@ -153,7 +153,6 @@ type Object struct {
 	RC     int64     // references counter
 	Access time.Time // last access time
 	Create time.Time // created at
-	User   []byte    // user provided meta-information (string)
 }
 
 type object struct {
@@ -161,7 +160,6 @@ type object struct {
 	RC     int64
 	Access int64 // unix nano
 	Create int64 // unix nano
-	User   []byte
 }
 
 // Encode the Object to []bye
@@ -179,8 +177,6 @@ func (o *Object) Encode() (b []byte) {
 	if o.Create.IsZero() == false {
 		obj.Create = o.Create.UnixNano()
 	}
-
-	obj.User = o.User
 
 	return encoder.Serialize(&obj)
 }
@@ -211,7 +207,6 @@ func (o *Object) Decode(p []byte) (err error) {
 		o.Create = time.Unix(0, obj.Create)
 	}
 
-	o.User = obj.User
 	return
 }
 

@@ -193,8 +193,7 @@ func (o *Object) equal(e *Object) (eq bool) {
 	eq = bytes.Compare(o.Val, e.Val) == 0 &&
 		o.RC == e.RC &&
 		o.Access.Equal(e.Access) &&
-		o.Create.Equal(o.Create) &&
-		bytes.Compare(o.User, e.User) == 0
+		o.Create.Equal(o.Create)
 	return
 }
 
@@ -228,8 +227,6 @@ func TestObject_Encode(t *testing.T) {
 
 	o.Create = time.Now()
 	o.Access = time.Now()
-
-	o.User = []byte("created for tests")
 
 	p = o.Encode()
 
@@ -305,6 +302,7 @@ func TestObject_Incr(t *testing.T) {
 //
 
 type dummyCXDS struct {
+	Hooks
 	err error
 }
 
@@ -324,28 +322,30 @@ func (*dummyCXDS) GetIncrNotTouch(
 }
 
 func (*dummyCXDS) Set(
-	cipher.SHA256, []byte, string,
+	cipher.SHA256, []byte,
 ) (obj *Object, err error) {
 	return
 }
 
 func (*dummyCXDS) SetIncr(
-	cipher.SHA256, []byte, int64, string,
+	cipher.SHA256, []byte, int64,
 ) (obj *Object, err error) {
 	return
 }
 
 func (*dummyCXDS) SetNotTouch(
-	cipher.SHA256, []byte, string,
+	cipher.SHA256, []byte,
 ) (obj *Object, err error) {
 	return
 }
 
 func (*dummyCXDS) SetIncrNotTouch(
-	cipher.SHA256, []byte, int64, string,
+	cipher.SHA256, []byte, int64,
 ) (obj *Object, err error) {
 	return
 }
+
+func (*dummyCXDS) SetRaw(cipher.SHA256, *Object) (err error) { return }
 
 func (*dummyCXDS) Incr(
 	cipher.SHA256, int64,
@@ -359,11 +359,12 @@ func (*dummyCXDS) IncrNotTouch(
 	return
 }
 
-func (*dummyCXDS) Del(cipher.SHA256) (obj *Object, err error)   { return }
+func (*dummyCXDS) Take(cipher.SHA256) (obj *Object, err error)  { return }
+func (*dummyCXDS) Del(cipher.SHA256) (err error)                { return }
 func (*dummyCXDS) Iterate(IterateObjectsFunc) (err error)       { return }
 func (*dummyCXDS) IterateDel(IterateObjectsDelFunc) (err error) { return }
-func (*dummyCXDS) Amount() (all, used int)                      { return }
-func (*dummyCXDS) Volume() (all, used int)                      { return }
+func (*dummyCXDS) Amount() (all, used int64)                    { return }
+func (*dummyCXDS) Volume() (all, used int64)                    { return }
 func (*dummyCXDS) IsSafeClosed() (sc bool)                      { return }
 
 func (d *dummyCXDS) Close() error {
