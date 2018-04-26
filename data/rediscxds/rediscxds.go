@@ -24,8 +24,8 @@ type Redis struct {
 	isSafeClosed bool        // current state
 
 	// LRU timeout feature
-	expire     time.Duration //
-	expireFunc ExpireFunc    //
+	expire     int64      // time.Duration
+	expireFunc ExpireFunc //
 
 	data.Hooks // hooks
 
@@ -59,7 +59,7 @@ func NewCXDS(
 
 	var rc Redis
 	rc.pool = pool
-	rc.expire = conf.Expire / time.Second
+	rc.expire = int64(conf.Expire / time.Second)
 	rc.expireFunc = conf.ExpireFunc
 
 	if err = rc.loadScripts(); err != nil {
@@ -249,10 +249,99 @@ func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
 // Get
 //
 
-func (r *Redis) Get(key cipher.SHA256) (obj *Object, err error) {
-	//
+type object struct {
+	Exists resp.Int             // bool
+	Val    resp.BulkStringBytes // []byte
+	RC     resp.Int             // int64
+	Access resp.Int             // int64
+	Create resp.Int             // int64
+}
+
+func (o *object) UnmarshalRESP(r *bufio.Reader) (err error) {
+
+	var ah resp.ArrayHeader
+	if err = ah.UnmarshalRESP(r); err != nil {
+		return
+	}
+
+	if ah.N != 5 {
+		return fmt.Errorf("invalid resposne length %d, want 5", ah.N)
+	}
+
+	if err = o.Exists.UnmarshalRESP(r); err != nil {
+		return
+	}
+	if err = o.Val.UnmarshalRESP(r); err != nil {
+		return
+	}
+	if err = o.RC.UnmarshalRESP(r); err != nil {
+		return
+	}
+	if err = o.Access.UnmarshalRESP(r); err != nil {
+		return
+	}
+	err = o.Create.UnmarshalRESP(r)
+	return
+
+}
+
+// return data.Object or nil if not exist
+func (o *object) Object() (obj *data.Object) {
+
+	if o.Exists == 0 {
+		return
+	}
+
+	obj = new(data.Object)
+	obj.Val = o.Val.B
+	obj.RC = o.RC.I
+	obj.Access = time.Unix(0, o.Access.I)
+	obj.Create = time.Unix(0, o.Create.I)
 	return
 }
+
+func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
+	defer r.BeforeGetHooksClose()
+	for _, hook := range r.BeforeGetHooks(key) {
+		if _, err = hook(key, incrBy); err != nil { // ignore the meta (_)
+			return
+		}
+	}
+	return
+}
+
+func (r *Redis) Get(key cipher.SHA256) (obj *Object, err error) {
+
+	if err = r.beforeGetHooks(key, 0); err != nil {
+		return
+	}
+
+	var reply object
+
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
+		"expire",
+		"hex",
+		"now",
+		r.expire,
+		key.Hex(),
+		time.Now().UnixNano(),
+	))
+
+	if err != nil {
+		r.CallAfterGetHooks(key, obj, err)
+		return
+	}
+
+	// exists (is nil)
+	if obj = reply.Object(); obj == nil {
+		err = data.ErrNotFound
+	}
+
+	r.CallAfterGetHooks(key, obj, err)
+	return
+}
+
+// ...
 
 func (r *Redis) GetIncr(
 	key cipher.SHA256,
