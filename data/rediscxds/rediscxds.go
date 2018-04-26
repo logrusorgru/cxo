@@ -3,6 +3,7 @@ package rediscxds
 import (
 	"bufio"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/skycoin/cxo/data"
@@ -51,16 +52,22 @@ func NewCXDS(
 	}
 
 	var pool *radix.Pool
-	if pool, err = radix.NewPool(network, addr, size, opts...); err != nil {
+	pool, err = radix.NewPool(network, addr, conf.Size, conf.Opts...)
+	if err != nil {
 		return
 	}
 
 	var rc Redis
 	rc.pool = pool
-	rc.expire = conf.Expire
+	rc.expire = conf.Expire / time.Second
 	rc.expireFunc = conf.ExpireFunc
 
 	if err = rc.loadScripts(); err != nil {
+		pool.Close()
+		return
+	}
+
+	if err = rc.subscribeExpiredEvents(conf); err != nil {
 		pool.Close()
 		return
 	}
@@ -124,17 +131,19 @@ func (r *Redis) loadScripts() (err error) {
 	return
 }
 
-func (r *Redis) subscribeExpireEvents(conf *Config) (err error) {
+func (r *Redis) subscribeExpiredEvents(conf *Config) (err error) {
 
-	if conf.Expire == 0 {
+	if conf.Expire == 0 || conf.ExpireFunc == nil {
 		return // don't subscribe (feature disabled)
 	}
 
+	// make sure that pool size is enough to wait subscriptions (1 connection)
 	if conf.Size < 2 {
 		return fmt.Errorf("can't enable Expire feature, small pool size %d",
 			conf.Size)
 	}
 
+	// enable 'expired' event notifications
 	err = r.pool.Do(radix.Cmd(nil, "CONFIG SET",
 		"notify-keyspace-events", "Ex",
 	))
@@ -143,7 +152,43 @@ func (r *Redis) subscribeExpireEvents(conf *Config) (err error) {
 		return
 	}
 
-	//
+	// run subscription in separate goroutine (ignore all errors)
+	go r.waitEvents()
+	return
+}
+
+func (r *Redis) waitEvents() {
+
+	r.pool.Do(radix.WithConn("", func(c *radix.Conn) (err error) {
+		var psc = radix.PubSub(c)
+		defer psc.Close()
+
+		var ch = make(chan radix.PubSubMessage, 10)
+
+		const eventExpired = "__keyevent@0__:expired"
+
+		psc.Subscribe(ch, eventExpired)
+		// defer psc.Unsubscribe(ch, eventExpired) // closed connection here
+
+		for msg := range ch {
+			if msg.Type != "message" {
+				continue
+			}
+			if msg.Pattern != eventExpired {
+				continue
+			}
+			var ms = string(msg.Message)
+			ms = strings.TrimSuffix(ms, ".ex")
+
+			var pk, err = cipher.PubKeyFromHex(ms)
+			if err != nil {
+				panic(err)
+			}
+
+			r.expireFunc(pk) // callback
+		}
+
+	}))
 
 }
 
@@ -167,6 +212,36 @@ func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
 		return
 	}
 
+	var reply []int64 // exists, access
+
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.touchLua, 3,
+		"expire",
+		"hex",
+		"now",
+		r.expire,
+		key.Hex(),
+		time.Now().UnixNano(),
+	))
+
+	if err != nil {
+		r.CallAfterTouchHooks(key, access, err)
+		return
+	}
+
+	if len(reply) != 2 {
+		err = fmt.Errorf("invalid reply length %d, want 2", len(reply))
+		r.CallAfterTouchHooks(key, access, err)
+		return
+	}
+
+	// exists (reply[0])
+	if reply[0] == 0 {
+		r.CallAfterTouchHooks(key, access, data.ErrNotFound)
+		return
+	}
+
+	access = time.Unix(0, reply[1])
+	r.CallAfterTouchHooks(key, access, nil)
 	return
 }
 
