@@ -1,6 +1,7 @@
 package rediscxds
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/mediocregopher/radix.v3"
@@ -9,7 +10,8 @@ import (
 
 // defaults
 const (
-	Size int = 10 // default pool size (10 connections)
+	Size      int           = 10               // default pool size
+	MinExpire time.Duration = 10 * time.Second // 10s
 )
 
 // ExpireFunc has meaning only if expire callback enabled
@@ -37,10 +39,16 @@ type ExpireFunc func(key cipher.SHA256)
 
 // A Config represents Redis configurations
 type Config struct {
-	Size       int             // pool size (max connections)
-	Opts       []radix.PoolOpt // pool options
-	Expire     time.Duration   // enable expire callback (see ExpireFunc)
-	ExpireFunc ExpireFunc      // expire callback (see ExpireFunc)
+	Size int             // pool size (max connections)
+	Opts []radix.PoolOpt // pool options
+
+	// Expire enables expire callback (see ExpireFunc and
+	// Config.ExpireFunc field). The Expire will be rounded
+	// to nearest second below. If the Expire is zero or can
+	// be rounded to zero, then no expire-feature enabled.
+	// Also, the Expire can't be less then MinExpire.
+	Expire     time.Duration
+	ExpireFunc ExpireFunc // expire callback (see ExpireFunc)
 }
 
 // NewConfig retursn new Config
@@ -48,5 +56,19 @@ type Config struct {
 func NewConfig() (c *Config) {
 	c = new(Config)
 	c.Size = Size
+	return
+}
+
+// Validate configurations
+func (c *Config) Validate() (err error) {
+
+	if c.Expire != 0 {
+		c.Expire = (c.Expire / time.Second) * time.Second
+		if c.Expire < MinExpire {
+			return fmt.Errorf("Expire %s is less then min possible (%s)",
+				c.Expire, MinExpire)
+		}
+	}
+
 	return
 }

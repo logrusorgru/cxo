@@ -1,17 +1,18 @@
 
 --[[
-	keys/argv: hex, incr
+	keys/argv: expire, hex, incr
 	reply:     exists, val, rc, access, create
 ]]--
 
-local hex  = ARGV[1];
-local incr = ARGV[2];
+local expire = ARGV[1];
+local hex    = ARGV[2];
+local incr   = ARGV[3];
 
 local exists = redis.call("EXISTS", hex);
 
 -- if not exist
 if exists == 0 then
-	return {0, false, false, false, false}
+	return {0, false, false, false, false};
 end
 
 local object = redis.call("HMGET", hex,
@@ -23,5 +24,10 @@ local object = redis.call("HMGET", hex,
 -- incr
 local rc = redis.call("HINCRBY", hex,
 	"rc", incr);
+
+-- update expire (object can be removed between shutdown and start)
+if expire ~= 0 then
+	redis.call("SETEX", hex .. ".ex", expire, 1);
+end
 
 return {1, object[1], rc, object[3], object[4]};

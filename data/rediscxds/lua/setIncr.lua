@@ -1,13 +1,14 @@
 
 --[[
-	keys/argv: hex, val, incr, now
+	keys/argv: expire, hex, val, incr, now
 	reply:     rc, access, create
 ]]--
 
-local hex  = ARGV[1];
-local val  = ARGV[2];
-local incr = ARGV[3];
-local now  = ARGV[4];
+local expire = ARGV[1];
+local hex    = ARGV[2];
+local val    = ARGV[3];
+local incr   = ARGV[4];
+local now    = ARGV[5];
 
 local exists = redis.call("EXISTS", hex);
 
@@ -47,6 +48,11 @@ else
 		"access", now,
 		"create", now);
 
+end
+
+-- update expire (object can be removed between shutdown and start)
+if expire ~= 0 then
+	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
 return {rc, access, create};

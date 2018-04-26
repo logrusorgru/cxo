@@ -1,7 +1,7 @@
 
 --[[
 	keys/argv: expire, hex, now
-	reply:     exists, val, rc, access, create
+	reply:     exists, access
 ]]--
 
 local expire = ARGV[1];
@@ -12,14 +12,11 @@ local exists = redis.call("EXISTS", hex);
 
 -- if not exist
 if exists == 0 then
-	return {0, false, false, false, false};
+	return {0, false};
 end
 
-local object = redis.call("HMGET", hex,
-	"val",     -- 1
-	"rc",      -- 2
-	"access",  -- 3
-	"create"); -- 4
+-- get last access time
+local access = redis.call("HMGET", hex, "access");
 
 -- touch (update access time)
 redis.call("HSET", hex, "access", now);
@@ -29,4 +26,4 @@ if expire ~= 0 then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {1, object[1], object[2], object[3], object[4]};
+return {1, access};

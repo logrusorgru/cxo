@@ -39,6 +39,10 @@ func NewCXDS(
 	err error, //      : error if any
 ) {
 
+	if err = conf.Validate(); err != nil {
+		return
+	}
+
 	var pool *radix.Pool
 	if pool, err = radix.NewPool(network, addr, size, opts...); err != nil {
 		return
@@ -46,6 +50,10 @@ func NewCXDS(
 
 	var rc Redis
 	rc.pool = pool
+	rc.expire = conf.Expire
+	rc.expireFunc = conf.ExpireFunc
+
+	// load scripts
 
 	if rc.isSafeClosed, err = rc.getSafeClosed(); err != nil {
 		pool.Close()
@@ -71,10 +79,37 @@ func (r *Redis) getSafeClosed() (safeClosed bool, err error) {
 	return
 }
 
-func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
-	r.CallBeforeTouchHook(key, getBeforeHookResultFunc)
+func (r *Redis) loadScripts() (err error) {
+	//
 	return
 }
+
+//
+// Touch
+//
+
+func (r *Redis) beforeTouchHooks(key cipher.SHA256) (err error) {
+	defer r.BeforeTouchHooksClose()
+	for _, hook := range r.BeforeTouchHooks(key) {
+		if _, err = hook(key); err != nil { // ignore the meta (_)
+			return
+		}
+	}
+	return
+}
+
+func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
+
+	if err = r.beforeTouchHooks(key); err != nil {
+		return
+	}
+
+	return
+}
+
+//
+// Get
+//
 
 func (r *Redis) Get(key cipher.SHA256) (obj *Object, err error) {
 	//
