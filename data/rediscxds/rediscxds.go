@@ -310,25 +310,21 @@ func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
 	return
 }
 
-func (r *Redis) Get(key cipher.SHA256) (obj *Object, err error) {
-
-	if err = r.beforeGetHooks(key, 0); err != nil {
+func (r *Redis) get(
+	action radix.CmdAction,
+	key cipher.SHA256,
+	incrBy int64,
+) (
+	obj *data.Object,
+	err error,
+) {
+	if err = r.beforeGetHooks(key, incrBy); err != nil {
 		return
 	}
 
 	var reply object
-
-	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
-		"expire",
-		"hex",
-		"now",
-		r.expire,
-		key.Hex(),
-		time.Now().UnixNano(),
-	))
-
-	if err != nil {
-		r.CallAfterGetHooks(key, obj, err)
+	if err = r.pool.Do(action); err != nil {
+		r.CallAfterGetHooks(key, nil, err)
 		return
 	}
 
@@ -336,39 +332,60 @@ func (r *Redis) Get(key cipher.SHA256) (obj *Object, err error) {
 	if obj = reply.Object(); obj == nil {
 		err = data.ErrNotFound
 	}
-
 	r.CallAfterGetHooks(key, obj, err)
 	return
 }
 
-// ...
+func (r *Redis) Get(key cipher.SHA256) (*Object, error) {
+	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
+		"expire",
+		"hex",
+		"now",
+		r.expire,
+		key.Hex(),
+		time.Now().UnixNano(),
+	), key, 0)
+}
 
-func (r *Redis) GetIncr(
-	key cipher.SHA256,
-	incrBy int64,
-) (
-	obj *Object,
-	err error,
-) {
-	//
-	return
+func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*Object, error) {
+	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 4,
+		"expire",
+		"hex",
+		"incr",
+		"now",
+		r.expire,
+		key.Hex(),
+		incrBy,
+		time.Now().UnixNano(),
+	), key, incrBy)
 }
 
 func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *Object, err error) {
-	//
-	return
+	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 3,
+		"expire",
+		"hex",
+		"incr",
+		r.expire,
+		key.Hex(),
+		incrBy,
+	), key, 0)
 }
 
 func (r *Redis) GetIncrNotTouch(
-	key cipher.SHA256,
-	incrBy int64,
-) (
-	obj *Object,
-	err error,
-) {
-	//
-	return
+	key cipher.SHA256, incrBy int64,
+) (*Object, error) {
+
+	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 3,
+		"expire",
+		"hex",
+		"incr",
+		r.expire,
+		key.Hex(),
+		incrBy,
+	), key, incrBy)
 }
+
+// ...
 
 func (r *Redis) Set(key cipher.SHA256, val []byte) (obj *Object, err error) {
 	//
