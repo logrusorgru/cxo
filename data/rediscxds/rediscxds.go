@@ -26,7 +26,7 @@ type Redis struct {
 	expire     time.Duration //
 	expireFunc ExpireFunc    //
 
-	hooks
+	data.Hooks // hooks
 }
 
 // NewCXDS creates CXDS based on Redis
@@ -71,74 +71,141 @@ func (r *Redis) getSafeClosed() (safeClosed bool, err error) {
 	return
 }
 
-// =============================================================================
-// -----------------------------------------------------------------------------
+func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
+	r.CallBeforeTouchHook(key, getBeforeHookResultFunc)
+	return
+}
 
+func (r *Redis) Get(key cipher.SHA256) (obj *Object, err error) {
+	//
+	return
+}
 
+func (r *Redis) GetIncr(
+	key cipher.SHA256,
+	incrBy int64,
+) (
+	obj *Object,
+	err error,
+) {
+	//
+	return
+}
 
+func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *Object, err error) {
+	//
+	return
+}
 
-	Touch(key cipher.SHA256) (access time.Time, err error)
+func (r *Redis) GetIncrNotTouch(
+	key cipher.SHA256,
+	incrBy int64,
+) (
+	obj *Object,
+	err error,
+) {
+	//
+	return
+}
 
-	Get(key cipher.SHA256) (obj *Object, err error)
-	GetIncr(key cipher.SHA256, incrBy int64) (obj *Object, err error)
-	GetNotTouch(key cipher.SHA256) (obj *Object, err error)
-	GetIncrNotTouch(key cipher.SHA256, incrBy int64) (obj *Object, err error)
+func (r *Redis) Set(key cipher.SHA256, val []byte) (obj *Object, err error) {
+	//
+	return
+}
 
-	Set(key cipher.SHA256, val []byte) (obj *Object, err error)
-	SetIncr(
-		key cipher.SHA256, // : hash of the object
-		val []byte, //        : encoded object
-		incrBy int64, //      : inc- or decrement RC by this value
-	) (
-		obj *Object, //       : object with new RC and previous last access time
-		err error, //         : error if any
-	)
-	SetNotTouch(
-		key cipher.SHA256, // : hash of the object
-		val []byte, //        : encoded object
-	) (
-		obj *Object, //       : object with new RC and previous last access time
-		err error, //         : error if any
-	)
-	SetIncrNotTouch(
-		key cipher.SHA256, // : hash of the object
-		val []byte, //        : encoded object
-		incrBy int64, //      : inc- or decrement RC by this value
-	) (
-		obj *Object, //       : object with new RC and previous last access time
-		err error, //         : error if any
-	)
-	SetRaw(key cipher.SHA256, obj *Object) (err error)
+func (r *Redis) SetIncr(
+	key cipher.SHA256, // : hash of the object
+	val []byte, //        : encoded object
+	incrBy int64, //      : inc- or decrement RC by this value
+) (
+	obj *Object, //       : object with new RC and previous last access time
+	err error, //         : error if any
+) {
+	//
+	return
+}
 
-	Incr(
-		key cipher.SHA256, // : hash of the object
-		incrBy int64, //      : inr- or decrement by
-	) (
-		rc int64, //          : new RC
-		access time.Time, //  : previous last access time
-		err error, //         : error if any
-	)
-	IncrNotTouch(
-		key cipher.SHA256, // : hash of the object
-		incrBy int64, //      : inr- or decrement by
-	) (
-		rc int64, //          : new RC
-		access time.Time, //  : previous last access time
-		err error, //         : error if any
-	)
+func (r *Redis) SetNotTouch(
+	key cipher.SHA256, // : hash of the object
+	val []byte, //        : encoded object
+) (
+	obj *Object, //       : object with new RC and previous last access time
+	err error, //         : error if any
+) {
+	//
+	return
+}
 
-	Take(key cipher.SHA256) (obj *Object, err error)
-	Del(key cipher.SHA256) (err error)
+func (r *Redis) SetIncrNotTouch(
+	key cipher.SHA256, // : hash of the object
+	val []byte, //        : encoded object
+	incrBy int64, //      : inc- or decrement RC by this value
+) (
+	obj *Object, //       : object with new RC and previous last access time
+	err error, //         : error if any
+) {
+	//
+	return
+}
 
-	Iterate(iterateFunc IterateObjectsFunc) (err error)
-	IterateDel(iterateFunc IterateObjectsDelFunc) error
+func (r *Redis) SetRaw(key cipher.SHA256, obj *Object) (err error) {
+	//
+	return
+}
 
-	Amount() (all, used int64)
-	Volume() (all, used int64)
+func (r *Redis) Incr(
+	key cipher.SHA256, // : hash of the object
+	incrBy int64, //      : inr- or decrement by
+) (
+	rc int64, //          : new RC
+	access time.Time, //  : previous last access time
+	err error, //         : error if any
+) {
+	//
+	return
+}
 
+func (r *Redis) IncrNotTouch(
+	key cipher.SHA256, // : hash of the object
+	incrBy int64, //      : inr- or decrement by
+) (
+	rc int64, //          : new RC
+	access time.Time, //  : previous last access time
+	err error, //         : error if any
+) {
+	//
+	return
+}
 
-// -----------------------------------------------------------------------------
-// =============================================================================
+func (r *Redis) Take(key cipher.SHA256) (obj *Object, err error) {
+	//
+	return
+}
+
+func (r *Redis) Del(key cipher.SHA256) (err error) {
+	//
+	return
+}
+
+func (r *Redis) Iterate(iterateFunc IterateObjectsFunc) (err error) {
+	//
+	return
+}
+
+func (r *Redis) IterateDel(iterateFunc IterateObjectsDelFunc) (err error) {
+	//
+	return
+}
+
+func (r *Redis) Amount() (all, used int64) {
+	//
+	return
+}
+
+func (r *Redis) Volume() (all, used int64) {
+	//
+	return
+}
 
 // IsSafeClosed is flag that means that DB has been
 // closed successfully last time. If the IsSafeClosed

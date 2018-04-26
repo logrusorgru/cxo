@@ -8,9 +8,6 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
-// A GetBeforeHookResultFunc used with Hooks to get result of hook call
-type GetBeforeHookResultFunc func(meta interface{}, err error)
-
 // A Hooks implements hoosk keepper
 type Hooks struct {
 
@@ -84,26 +81,25 @@ func (h *Hooks) DelBeforeTouchHook(beforeTouchHookFunc BeforeTouchHookFunc) {
 	h.beforeTouchHooks = h.beforeTouchHooks[:i]
 }
 
-// CallBeforeTouchHook used to call before-touch-hooks
-func (h *Hooks) CallBeforeTouchHook(
+// BeforeTouchHooks used to call before-touch-hooks,
+// use the BeforeTouchHooks using following construction
+//
+//     defer hooks.BeforeTouchHooksClose()
+//     for _, hook := range BeforeTouchHooks() {
+//         hook(args)
+//     }
+//
+func (h *Hooks) BeforeTouchHooks(
 	key cipher.SHA256,
-	getBeforeHookResultFunc GetBeforeHookResultFunc,
+) (
+	hooks []BeforeTouchHookFunc,
 ) {
 	h.beforeTouchMutex.Lock()
-	defer h.beforeTouchMutex.Unlock()
+	return h.beforeTouchHooks
+}
 
-	var (
-		meta interface{}
-		err  error
-	)
-
-	for _, hook := range h.beforeTouchHooks {
-		meta, err = hook(key)
-		getBeforeHookResultFunc(meta, err)
-		if err != nil {
-			return
-		}
-	}
+func (h *Hooks) BeforeTouchHooksClose() {
+	h.beforeTouchMutex.Unlock()
 }
 
 // Set
@@ -137,28 +133,25 @@ func (h *Hooks) DelBeforeSetHook(beforeSetHookFunc BeforeSetHookFunc) {
 	h.beforeSetHooks = h.beforeSetHooks[:i]
 }
 
-// CallBeforeSetHook used to call before-set-hooks
-func (h *Hooks) CallBeforeSetHook(
+// BeforeSetHooks used to call before-set-hooks,
+// use the BeforeSetHooks using following construction
+//
+//     defer hooks.BeforeSetHooksClose()
+//     for _, hook := range BeforeSetHooks() {
+//         hook(args)
+//     }
+//
+func (h *Hooks) BeforeSetHooks(
 	key cipher.SHA256,
-	val []byte,
-	incrBy int64,
-	getBeforeHookResultFunc GetBeforeHookResultFunc,
+) (
+	hooks []BeforeSetHookFunc,
 ) {
 	h.beforeSetMutex.Lock()
-	defer h.beforeSetMutex.Unlock()
+	return h.beforeSetHooks
+}
 
-	var (
-		meta interface{}
-		err  error
-	)
-
-	for _, hook := range h.beforeSetHooks {
-		meta, err = hook(key, val, incrBy)
-		getBeforeHookResultFunc(meta, err)
-		if err != nil {
-			return
-		}
-	}
+func (h *Hooks) BeforeSetHooksClose() {
+	h.beforeSetMutex.Unlock()
 }
 
 // Get
@@ -192,27 +185,25 @@ func (h *Hooks) DelBeforeGetHook(beforeGetHookFunc BeforeGetHookFunc) {
 	h.beforeGetHooks = h.beforeGetHooks[:i]
 }
 
-// CallBeforeGetHook used to call before-get-hooks
-func (h *Hooks) CallBeforeGetHook(
+// BeforeGetHooks used to call before-get-hooks,
+// use the BeforeGetHooks using following construction
+//
+//     defer hooks.BeforeGetHooksClose()
+//     for _, hook := range BeforeGetHooks() {
+//         hook(args)
+//     }
+//
+func (h *Hooks) BeforeGetHooks(
 	key cipher.SHA256,
-	incrBy int64,
-	getBeforeHookResultFunc GetBeforeHookResultFunc,
+) (
+	hooks []BeforeGetHookFunc,
 ) {
 	h.beforeGetMutex.Lock()
-	defer h.beforeGetMutex.Unlock()
+	return h.beforeGetHooks
+}
 
-	var (
-		meta interface{}
-		err  error
-	)
-
-	for _, hook := range h.beforeGetHooks {
-		meta, err = hook(key, incrBy)
-		getBeforeHookResultFunc(meta, err)
-		if err != nil {
-			return
-		}
-	}
+func (h *Hooks) BeforeGetHooksClose() {
+	h.beforeGetMutex.Unlock()
 }
 
 // Incr
@@ -246,27 +237,25 @@ func (h *Hooks) DelBeforeIncrHook(beforeIncrHookFunc BeforeIncrHookFunc) {
 	h.beforeIncrHooks = h.beforeIncrHooks[:i]
 }
 
-// CallBeforeIncrHook used to call before-incr-hooks
-func (h *Hooks) CallBeforeIncrHook(
+// BeforeIncrHooks used to call before-incr-hooks,
+// use the BeforeIncrHooks using following construction
+//
+//     defer hooks.BeforeIncrHooksClose()
+//     for _, hook := range BeforeIncrHooks() {
+//         hook(args)
+//     }
+//
+func (h *Hooks) BeforeIncrHooks(
 	key cipher.SHA256,
-	incrBy int64,
-	getBeforeHookResultFunc GetBeforeHookResultFunc,
+) (
+	hooks []BeforeIncrHookFunc,
 ) {
 	h.beforeIncrMutex.Lock()
-	defer h.beforeIncrMutex.Unlock()
+	return h.beforeIncrHooks
+}
 
-	var (
-		meta interface{}
-		err  error
-	)
-
-	for _, hook := range h.beforeIncrHooks {
-		meta, err = hook(key, incrBy)
-		getBeforeHookResultFunc(meta, err)
-		if err != nil {
-			return
-		}
-	}
+func (h *Hooks) BeforeIncrHooksClose() {
+	h.beforeIncrMutex.Unlock()
 }
 
 // Del
@@ -300,26 +289,25 @@ func (h *Hooks) DelBeforeDelHook(beforeDelHookFunc BeforeDelHookFunc) {
 	h.beforeDelHooks = h.beforeDelHooks[:i]
 }
 
-// CallBeforeDelHook used to call before-del-hooks
-func (h *Hooks) CallBeforeDelHook(
+// BeforeDelHooks used to call before-del-hooks,
+// use the BeforeDelHooks using following construction
+//
+//     defer hooks.BeforeDelHooksClose()
+//     for _, hook := range BeforeDelHooks() {
+//         hook(args)
+//     }
+//
+func (h *Hooks) BeforeDelHooks(
 	key cipher.SHA256,
-	getBeforeHookResultFunc GetBeforeHookResultFunc,
+) (
+	hooks []BeforeDelHookFunc,
 ) {
 	h.beforeDelMutex.Lock()
-	defer h.beforeDelMutex.Unlock()
+	return h.beforeDelHooks
+}
 
-	var (
-		meta interface{}
-		err  error
-	)
-
-	for _, hook := range h.beforeDelHooks {
-		meta, err = hook(key)
-		getBeforeHookResultFunc(meta, err)
-		if err != nil {
-			return
-		}
-	}
+func (h *Hooks) BeforeDelHooksClose() {
+	h.beforeDelMutex.Unlock()
 }
 
 //
@@ -357,8 +345,8 @@ func (h *Hooks) DelAfterTouchHook(afterTouchHookFunc AfterTouchHookFunc) {
 	h.afterTouchHooks = h.afterTouchHooks[:i]
 }
 
-// CallAfterTouchHook used to call after-touch-hooks
-func (h *Hooks) CallAfterTouchHook(
+// CallAfterTouchHooks used to call after-touch-hooks
+func (h *Hooks) CallAfterTouchHooks(
 	key cipher.SHA256,
 	access time.Time,
 	err error,
@@ -402,8 +390,8 @@ func (h *Hooks) DelAfterSetHook(afterSetHookFunc AfterSetHookFunc) {
 	h.afterSetHooks = h.afterSetHooks[:i]
 }
 
-// CallAfterSetHook used to call after-set-hooks
-func (h *Hooks) CallAfterSetHook(
+// CallAfterSetHooks used to call after-set-hooks
+func (h *Hooks) CallAfterSetHooks(
 	key cipher.SHA256,
 	obj *Object,
 	err error,
@@ -447,8 +435,8 @@ func (h *Hooks) DelAfterGetHook(afterGetHookFunc AfterGetHookFunc) {
 	h.afterGetHooks = h.afterGetHooks[:i]
 }
 
-// CallAfterGetHook used to call after-get-hooks
-func (h *Hooks) CallAfterGetHook(
+// CallAfterGetHooks used to call after-get-hooks
+func (h *Hooks) CallAfterGetHooks(
 	key cipher.SHA256,
 	obj *Object,
 	err error,
@@ -492,8 +480,8 @@ func (h *Hooks) DelAfterIncrHook(afterIncrHookFunc AfterIncrHookFunc) {
 	h.afterIncrHooks = h.afterIncrHooks[:i]
 }
 
-// CallAfterIncrHook used to call after-incr-hooks
-func (h *Hooks) CallAfterIncrHook(
+// CallAfterIncrHooks used to call after-incr-hooks
+func (h *Hooks) CallAfterIncrHooks(
 	key cipher.SHA256, // :
 	rc int64, //          :
 	access time.Time, //  :
@@ -538,8 +526,8 @@ func (h *Hooks) DelAfterDelHook(afterDelHookFunc AfterDelHookFunc) {
 	h.afterDelHooks = h.afterDelHooks[:i]
 }
 
-// CallAfterDelHook used to call after-del-hooks
-func (h *Hooks) CallAfterDelHook(
+// CallAfterDelHooks used to call after-del-hooks
+func (h *Hooks) CallAfterDelHooks(
 	key cipher.SHA256, // :
 	obj *Object, //       :
 	err error, //         :
