@@ -27,6 +27,13 @@ type Redis struct {
 	expireFunc ExpireFunc    //
 
 	data.Hooks // hooks
+
+	// scripts (SHA1)
+	touchLua                                  string
+	getLua, getIncrLua, getIncrNotTouchLua    string
+	setIncrLua, setIncrNotTouchLua, setRawLua string
+	incrLua, incrNotTouchLua                  string
+	delLua, takeLua                           string
 }
 
 // NewCXDS creates CXDS based on Redis
@@ -53,7 +60,10 @@ func NewCXDS(
 	rc.expire = conf.Expire
 	rc.expireFunc = conf.ExpireFunc
 
-	// load scripts
+	if err = rc.loadScripts(); err != nil {
+		pool.Close()
+		return
+	}
 
 	if rc.isSafeClosed, err = rc.getSafeClosed(); err != nil {
 		pool.Close()
@@ -80,8 +90,61 @@ func (r *Redis) getSafeClosed() (safeClosed bool, err error) {
 }
 
 func (r *Redis) loadScripts() (err error) {
-	//
+
+	type scriptHash struct {
+		script string
+		hash   *string
+	}
+
+	for _, sh := range []scriptHash{
+		{touchLua, &r.touchLua},
+		{getLua, &r.getLua},
+		{getIncrLua, &r.getIncrLua},
+		{getIncrNotTouchLua, &r.getIncrNotTouchLua},
+		{setIncrLua, &r.setIncrLua},
+		{setIncrNotTouchLua, &r.setIncrNotTouchLua},
+		{setRawLua, &r.setRawLua},
+		{incrLua, &r.incrLua},
+		{incrNotTouchLua, &r.incrNotTouchLua},
+		{delLua, &r.delLua},
+		{takeLua, &r.takeLua},
+	} {
+
+		var reply resp.BulkString
+
+		err = r.pool.Do(radix.Cmd(&reply, "SCRIPT LOAD", sh.script))
+		if err != nil {
+			return
+		}
+
+		*sh.hash = reply.S
+
+	}
+
 	return
+}
+
+func (r *Redis) subscribeExpireEvents(conf *Config) (err error) {
+
+	if conf.Expire == 0 {
+		return // don't subscribe (feature disabled)
+	}
+
+	if conf.Size < 2 {
+		return fmt.Errorf("can't enable Expire feature, small pool size %d",
+			conf.Size)
+	}
+
+	err = r.pool.Do(radix.Cmd(nil, "CONFIG SET",
+		"notify-keyspace-events", "Ex",
+	))
+
+	if err != nil {
+		return
+	}
+
+	//
+
 }
 
 //

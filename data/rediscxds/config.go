@@ -10,8 +10,9 @@ import (
 
 // defaults
 const (
-	Size      int           = 10               // default pool size
-	MinExpire time.Duration = 10 * time.Second // 10s
+	Size        int           = 10               // default pool size
+	MinExpire   time.Duration = 10 * time.Second // 10s
+	DialTimeout time.Duration = 10 * time.Second // 10s
 )
 
 // ExpireFunc has meaning only if expire callback enabled
@@ -42,6 +43,9 @@ type Config struct {
 	Size int             // pool size (max connections)
 	Opts []radix.PoolOpt // pool options
 
+	DialTimeout time.Duration // dial timeout
+	Password    string        // redis server password
+
 	// Expire enables expire callback (see ExpireFunc and
 	// Config.ExpireFunc field). The Expire will be rounded
 	// to nearest second below. If the Expire is zero or can
@@ -56,11 +60,18 @@ type Config struct {
 func NewConfig() (c *Config) {
 	c = new(Config)
 	c.Size = Size
+	c.DialTimeout = DialTimeout
 	return
 }
 
-// Validate configurations
+// Validate configurations. The Validate method adds
+// connection function (to dial with timeout and
+// to authenticate) to head of the Opts field
 func (c *Config) Validate() (err error) {
+
+	if c.DialTimeout < 0 {
+		return fmt.Errorf("invalid DialTimeout: %s", c.DialTimeout)
+	}
 
 	if c.Expire != 0 {
 		c.Expire = (c.Expire / time.Second) * time.Second
@@ -68,6 +79,36 @@ func (c *Config) Validate() (err error) {
 			return fmt.Errorf("Expire %s is less then min possible (%s)",
 				c.Expire, MinExpire)
 		}
+	}
+
+	if c.DialTimeout > 0 || c.Password != "" {
+
+		var connFunc = func(network, addr string) (conn radix.Conn, err error) {
+
+			if c.DialTimeout == 0 {
+				conn, err = radix.Dial(network, addr)
+			} else {
+				conn, err = radix.DialTimeout(network, addr, c.DialTimeout)
+			}
+
+			if err != nil {
+				return
+			}
+
+			if c.Password != "" {
+				err = conn.Do(radix.Cmd(nil, "AUTH", c.Password))
+				if err != nil {
+					conn.Close()
+					return nil, err // don't return closed connection (GC)
+				}
+			}
+
+			return
+		}
+
+		// prepend
+		c.Opts = append([]radix.PoolOpt{radix.PoolConnFunc(connFunc)},
+			c.Opts...)
 	}
 
 	return
