@@ -30,11 +30,11 @@ type Redis struct {
 	data.Hooks // hooks
 
 	// scripts (SHA1)
-	touchLua                                  string
-	getLua, getIncrLua, getIncrNotTouchLua    string
-	setIncrLua, setIncrNotTouchLua, setRawLua string
-	incrLua, incrNotTouchLua                  string
-	delLua, takeLua                           string
+	touchLua                                               string
+	getLua, getIncrLua, getNotTouchLua, getIncrNotTouchLua string
+	setIncrLua, setIncrNotTouchLua, setRawLua              string
+	incrLua, incrNotTouchLua                               string
+	delLua, takeLua                                        string
 }
 
 // NewCXDS creates CXDS based on Redis
@@ -107,6 +107,7 @@ func (r *Redis) loadScripts() (err error) {
 		{touchLua, &r.touchLua},
 		{getLua, &r.getLua},
 		{getIncrLua, &r.getIncrLua},
+		{getNotTouchLua, &r.getNotTouchLua},
 		{getIncrNotTouchLua, &r.getIncrNotTouchLua},
 		{setIncrLua, &r.setIncrLua},
 		{setIncrNotTouchLua, &r.setIncrNotTouchLua},
@@ -118,14 +119,11 @@ func (r *Redis) loadScripts() (err error) {
 	} {
 
 		var reply resp.BulkString
-
 		err = r.pool.Do(radix.Cmd(&reply, "SCRIPT LOAD", sh.script))
 		if err != nil {
 			return
 		}
-
 		*sh.hash = reply.S
-
 	}
 
 	return
@@ -133,7 +131,7 @@ func (r *Redis) loadScripts() (err error) {
 
 func (r *Redis) subscribeExpiredEvents(conf *Config) (err error) {
 
-	if conf.Expire == 0 || conf.ExpireFunc == nil {
+	if conf.Expire == 0 {
 		return // don't subscribe (feature disabled)
 	}
 
@@ -361,13 +359,11 @@ func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*Object, error) {
 }
 
 func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *Object, err error) {
-	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 3,
+	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getNotTouchLua, 3,
 		"expire",
 		"hex",
-		"incr",
 		r.expire,
 		key.Hex(),
-		incrBy,
 	), key, 0)
 }
 
@@ -375,7 +371,7 @@ func (r *Redis) GetIncrNotTouch(
 	key cipher.SHA256, incrBy int64,
 ) (*Object, error) {
 
-	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 3,
+	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrNotTouchLua, 3,
 		"expire",
 		"hex",
 		"incr",
@@ -387,9 +383,8 @@ func (r *Redis) GetIncrNotTouch(
 
 // ...
 
-func (r *Redis) Set(key cipher.SHA256, val []byte) (obj *Object, err error) {
-	//
-	return
+func (r *Redis) Set(key cipher.SHA256, val []byte) (*Object, error) {
+	return r.SetIncr(key, val, 1)
 }
 
 func (r *Redis) SetIncr(
@@ -411,8 +406,7 @@ func (r *Redis) SetNotTouch(
 	obj *Object, //       : object with new RC and previous last access time
 	err error, //         : error if any
 ) {
-	//
-	return
+	return r.SetIncrNotTouch(key, val, 1)
 }
 
 func (r *Redis) SetIncrNotTouch(

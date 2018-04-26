@@ -66,11 +66,16 @@ func NewConfig() (c *Config) {
 
 // Validate configurations. The Validate method adds
 // connection function (to dial with timeout and
-// to authenticate) to head of the Opts field
+// to authenticate) to head of the Opts field.
+// Validate set Expire to 0 if ExpireFunc is nil.
 func (c *Config) Validate() (err error) {
 
 	if c.DialTimeout < 0 {
 		return fmt.Errorf("invalid DialTimeout: %s", c.DialTimeout)
+	}
+
+	if c.ExpireFunc == nil {
+		c.Expire = 0
 	}
 
 	if c.Expire != 0 {

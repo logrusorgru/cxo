@@ -8,6 +8,7 @@ package rediscxds
 
 //go:generate textFileToGoConst -in=lua/get.lua -o=getLua.go -c=getLua
 //go:generate textFileToGoConst -in=lua/getIncr.lua -o=getIncrLua.go -c=getIncrLua
+//go:generate textFileToGoConst -in=lua/getNotTouch.lua -o=getNotTouchLua.go -c=getNotTouchLua
 //go:generate textFileToGoConst -in=lua/getIncrNotTouch.lua -o=getIncrNotTouchLua.go -c=getIncrNotTouchLua
 
 // set
