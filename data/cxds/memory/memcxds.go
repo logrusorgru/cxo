@@ -1,4 +1,4 @@
-package memcxds
+package memory
 
 import (
 	"errors"
@@ -12,7 +12,7 @@ import (
 
 var ErrEmptyValue = errors.New("empty value")
 
-type memoryCXDS struct {
+type Memory struct {
 	mx  sync.RWMutex
 	kvs map[cipher.SHA256]memoryObject
 
@@ -32,10 +32,10 @@ type memoryObject struct {
 // NewCXDS creates CXDS-databse in
 // memory. The DB based on golang map
 func NewCXDS() data.CXDS {
-	return &memoryCXDS{kvs: make(map[cipher.SHA256]memoryObject)}
+	return &Memory{kvs: make(map[cipher.SHA256]memoryObject)}
 }
 
-func (m *memoryCXDS) av(rc, nrc uint32, vol int) {
+func (m *Memory) av(rc, nrc uint32, vol int) {
 
 	if rc == 0 { // was dead
 		if nrc > 0 { // an be resurrected
@@ -54,7 +54,7 @@ func (m *memoryCXDS) av(rc, nrc uint32, vol int) {
 
 }
 
-func (m *memoryCXDS) incr(
+func (m *Memory) incr(
 	key cipher.SHA256,
 	mo memoryObject,
 	rc uint32,
@@ -88,7 +88,7 @@ func (m *memoryCXDS) incr(
 }
 
 // Get value and change rc
-func (m *memoryCXDS) Get(
+func (m *Memory) Get(
 	key cipher.SHA256,
 	inc int,
 ) (
@@ -115,7 +115,7 @@ func (m *memoryCXDS) Get(
 }
 
 // Set value and change rc
-func (m *memoryCXDS) Set(
+func (m *Memory) Set(
 	key cipher.SHA256,
 	val []byte,
 	inc int,
@@ -156,7 +156,7 @@ func (m *memoryCXDS) Set(
 }
 
 // Inc changes rc
-func (m *memoryCXDS) Inc(
+func (m *Memory) Inc(
 	key cipher.SHA256,
 	inc int,
 ) (
@@ -182,7 +182,7 @@ func (m *memoryCXDS) Inc(
 }
 
 // Del deletes value unconditionally
-func (m *memoryCXDS) Del(key cipher.SHA256) (_ error) {
+func (m *Memory) Del(key cipher.SHA256) (_ error) {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -203,7 +203,7 @@ func (m *memoryCXDS) Del(key cipher.SHA256) (_ error) {
 	return
 }
 
-func (m *memoryCXDS) unlockedIterate(
+func (m *Memory) unlockedIterate(
 	k cipher.SHA256,
 	rc uint32,
 	v []byte,
@@ -219,7 +219,7 @@ func (m *memoryCXDS) unlockedIterate(
 }
 
 // Iterate all keys
-func (m *memoryCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
+func (m *Memory) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 
 	m.mx.Lock()
 	defer m.mx.Unlock()
@@ -236,7 +236,7 @@ func (m *memoryCXDS) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 	return
 }
 
-func (m *memoryCXDS) unlockedIterateDel(
+func (m *Memory) unlockedIterateDel(
 	k cipher.SHA256,
 	rc uint32,
 	v []byte,
@@ -253,7 +253,7 @@ func (m *memoryCXDS) unlockedIterateDel(
 }
 
 // IterateDel all keys deleting
-func (m *memoryCXDS) IterateDel(
+func (m *Memory) IterateDel(
 	iterateFunc data.IterateObjectsDelFunc,
 ) (
 	err error,
@@ -287,7 +287,7 @@ func (m *memoryCXDS) IterateDel(
 }
 
 // amount of objects
-func (m *memoryCXDS) Amount() (all, used int) {
+func (m *Memory) Amount() (all, used int) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -295,7 +295,7 @@ func (m *memoryCXDS) Amount() (all, used int) {
 }
 
 // Volume of objects
-func (m *memoryCXDS) Volume() (all, used int) {
+func (m *Memory) Volume() (all, used int) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -305,12 +305,12 @@ func (m *memoryCXDS) Volume() (all, used int) {
 // IsSafeClosed allways returns true, because
 // the DB placed in memory and destroyed after
 // closing.
-func (*memoryCXDS) IsSafeClosed() bool {
+func (*Memory) IsSafeClosed() bool {
 	return true
 }
 
 // Close DB
-func (m *memoryCXDS) Close() (_ error) {
+func (m *Memory) Close() (_ error) {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 

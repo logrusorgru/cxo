@@ -1,4 +1,4 @@
-package rediscxds
+package redis
 
 import (
 	"fmt"

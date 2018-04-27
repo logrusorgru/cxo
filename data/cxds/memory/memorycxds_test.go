@@ -1,4 +1,4 @@
-package memcxds
+package memory
 
 import (
 	"testing"

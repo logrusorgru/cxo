@@ -1,4 +1,4 @@
-package rediscxds
+package redis
 
 import (
 	"bufio"
@@ -884,6 +884,11 @@ func (r *Redis) Volume() (all, used int64) {
 // depends).
 func (r *Redis) IsSafeClosed() (safeClosed bool) {
 	return r.isSafeClosed
+}
+
+// Pool returns underlying *radix.Pool
+func (r *Redis) Pool() *radix.Pool {
+	return r.pool
 }
 
 // Close the CXDS
