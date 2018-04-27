@@ -302,9 +302,10 @@ func TestObject_Incr(t *testing.T) {
 //
 
 type dummyCXDS struct {
-	Hooks
 	err error
 }
+
+func (d *dummyCXDS) Hooks() (hooks Hooks) { return }
 
 func (*dummyCXDS) Touch(cipher.SHA256) (access time.Time, err error) { return }
 func (*dummyCXDS) Get(cipher.SHA256) (obj *Object, err error)        { return }

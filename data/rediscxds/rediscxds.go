@@ -13,9 +13,10 @@ import (
 	"github.com/mediocregopher/radix.v3/resp"
 )
 
-// Convention
-//   - if 'create' field is zero (that is equal to time.Time{})
-//     then object doesn't exist
+type stat struct {
+	all  int64
+	used int64
+}
 
 // A Redis implments data.CXDS
 // interface over Redis database.
@@ -27,7 +28,11 @@ type Redis struct {
 	expire     int64      // time.Duration
 	expireFunc ExpireFunc //
 
-	data.Hooks // hooks
+	// amount and volume
+	amount stat
+	volume stat
+
+	data.HooksKeepper // hooks
 
 	// scripts (SHA1)
 	touchLua                                               string
@@ -93,6 +98,37 @@ func (r *Redis) setSafeClosed(t bool) (err error) {
 
 func (r *Redis) getSafeClosed() (safeClosed bool, err error) {
 	err = r.pool.Do(radix.FlatCmd(&safeClosed, "GET", "safeClosed"))
+	return
+}
+
+func (r *Redis) storeStat() (err error) {
+	err = r.pool.Do(radix.FlatCmd(nil, "HMSET", "stat",
+		"amount_all", r.amount.all,
+		"amount_used", r.amount.used,
+		"volume_all", r.volume.all,
+		"volume_used", r.volume.used,
+	))
+	return
+}
+
+func (r *Redis) loadStat() (err error) {
+	var stat []int64
+	err = r.pool.Do(radix.FlatCmd(&stat, "HMGET", "stat",
+		"amount_all",
+		"amount_used",
+		"volume_all",
+		"volume_used",
+	))
+	if err != nil {
+		return
+	}
+	if len(stat) != 4 {
+		return fmt.Errorf("invalid response length %d, want 4", len(stat))
+	}
+	r.amount.all = stat[0]
+	r.amount.used = stat[1]
+	r.volume.all = stat[2]
+	r.volume.used = stat[3]
 	return
 }
 
@@ -308,6 +344,25 @@ func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
 	return
 }
 
+func (r *Redis) changeStatAfterGet(rc, incrBy int64, volume int) {
+	if incrBy == 0 {
+		return // no changes
+	}
+	if rc <= 0 {
+		if rc+incrBy > 0 {
+			r.amount.used--                // } one of objects,
+			r.volume.used -= int64(volume) // }  turns to be not used
+		}
+		return
+	}
+	// rc > 0
+	if rc-incrBy <= 0 {
+		r.amount.used++                // } reborn
+		r.volume.used += int64(volume) // }
+	}
+	return
+}
+
 func (r *Redis) get(
 	action radix.CmdAction,
 	key cipher.SHA256,
@@ -316,6 +371,7 @@ func (r *Redis) get(
 	obj *data.Object,
 	err error,
 ) {
+
 	if err = r.beforeGetHooks(key, incrBy); err != nil {
 		return
 	}
@@ -330,6 +386,7 @@ func (r *Redis) get(
 	if obj = reply.Object(); obj == nil {
 		err = data.ErrNotFound
 	}
+	r.changeStatAfterGet(obj.RC, incrBy, len(obj.Val))
 	r.CallAfterGetHooks(key, obj, err)
 	return
 }
