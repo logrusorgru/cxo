@@ -166,7 +166,7 @@ func (s *setReply) Create() time.Time {
 }
 
 // SetRaw reply
-func (s *setReply) owerwritter() bool {
+func (s *setReply) overwritten() bool {
 	return s.rc == 1
 }
 
