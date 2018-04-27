@@ -165,13 +165,10 @@ func (r *Redis) loadScripts() (err error) {
 		{delLua, &r.delLua},
 		{takeLua, &r.takeLua},
 	} {
-
-		var reply resp.BulkString
-		err = r.pool.Do(radix.Cmd(&reply, "SCRIPT LOAD", sh.script))
+		err = r.pool.Do(radix.Cmd(sh.hash, "SCRIPT LOAD", sh.script))
 		if err != nil {
 			return
 		}
-		*sh.hash = reply.S
 	}
 
 	return
@@ -205,7 +202,7 @@ func (r *Redis) subscribeExpiredEvents(conf *Config) (err error) {
 
 func (r *Redis) waitEvents() {
 
-	r.pool.Do(radix.WithConn("", func(c *radix.Conn) (err error) {
+	r.pool.Do(radix.WithConn("", func(c radix.Conn) (err error) {
 		var psc = radix.PubSub(c)
 		defer psc.Close()
 
@@ -226,16 +223,22 @@ func (r *Redis) waitEvents() {
 			var ms = string(msg.Message)
 			ms = strings.TrimSuffix(ms, ".ex")
 
-			var pk, err = cipher.PubKeyFromHex(ms)
-			if err != nil {
-				panic(err)
-			}
-
-			r.expireFunc(pk) // callback
+			var hash = cipher.MustSHA256FromHex(ms)
+			r.expireFunc(hash) // callback
 		}
 
+		return
 	}))
 
+}
+
+//
+// Hooks
+//
+
+// Hooks returns object to access hooks of the Redis
+func (r *Redis) Hooks() (hooks data.Hooks) {
+	return r
 }
 
 //
@@ -244,7 +247,7 @@ func (r *Redis) waitEvents() {
 
 func (r *Redis) beforeTouchHooks(key cipher.SHA256) (err error) {
 	defer r.BeforeTouchHooksClose()
-	for _, hook := range r.BeforeTouchHooks(key) {
+	for _, hook := range r.BeforeTouchHooks() {
 		if _, err = hook(key); err != nil { // ignore the meta (_)
 			return
 		}
@@ -335,7 +338,7 @@ func (o *object) UnmarshalRESP(r *bufio.Reader) (err error) {
 // return data.Object or nil if not exist
 func (o *object) Object() (obj *data.Object) {
 
-	if o.Exists == 0 {
+	if o.Exists.I == 0 {
 		return
 	}
 
@@ -349,7 +352,7 @@ func (o *object) Object() (obj *data.Object) {
 
 func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
 	defer r.BeforeGetHooksClose()
-	for _, hook := range r.BeforeGetHooks(key) {
+	for _, hook := range r.BeforeGetHooks() {
 		if _, err = hook(key, incrBy); err != nil { // ignore the meta (_)
 			return
 		}
@@ -410,7 +413,7 @@ func (r *Redis) get(
 	return
 }
 
-func (r *Redis) Get(key cipher.SHA256) (*Object, error) {
+func (r *Redis) Get(key cipher.SHA256) (*data.Object, error) {
 	var reply object
 	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
 		"expire",
@@ -422,7 +425,7 @@ func (r *Redis) Get(key cipher.SHA256) (*Object, error) {
 	), key, 0)
 }
 
-func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*Object, error) {
+func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*data.Object, error) {
 	var reply object
 	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 4,
 		"expire",
@@ -436,7 +439,7 @@ func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*Object, error) {
 	), key, incrBy)
 }
 
-func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *Object, err error) {
+func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *data.Object, err error) {
 	var reply object
 	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getNotTouchLua, 3,
 		"expire",
@@ -448,7 +451,7 @@ func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *Object, err error) {
 
 func (r *Redis) GetIncrNotTouch(
 	key cipher.SHA256, incrBy int64,
-) (*Object, error) {
+) (*data.Object, error) {
 
 	var reply object
 	return r.get(&reply,
@@ -471,7 +474,7 @@ func (r *Redis) beforeSetHooks(
 ) {
 
 	defer r.BeforeSetHooksClose()
-	for _, hook := range r.BeforeSetHooks(key) {
+	for _, hook := range r.BeforeSetHooks() {
 		if _, err = hook(key, val, incrBy); err != nil { // ignore the meta (_)
 			return
 		}
@@ -515,7 +518,7 @@ func (r *Redis) set(
 	return
 }
 
-func (r *Redis) Set(key cipher.SHA256, val []byte) (*Object, error) {
+func (r *Redis) Set(key cipher.SHA256, val []byte) (*data.Object, error) {
 	return r.SetIncr(key, val, 1)
 }
 
@@ -524,7 +527,7 @@ func (r *Redis) SetIncr(
 	val []byte, //        : encoded object
 	incrBy int64, //      : inc- or decrement RC by this value
 ) (
-	obj *Object, //       : object with new RC and previous last access time
+	obj *data.Object, //  : object with new RC and previous last access time
 	err error, //         : error if any
 ) {
 	var reply []int64
@@ -546,7 +549,7 @@ func (r *Redis) SetNotTouch(
 	key cipher.SHA256, // : hash of the object
 	val []byte, //        : encoded object
 ) (
-	obj *Object, //       : object with new RC and previous last access time
+	obj *data.Object, //  : object with new RC and previous last access time
 	err error, //         : error if any
 ) {
 	return r.SetIncrNotTouch(key, val, 1)
@@ -557,7 +560,7 @@ func (r *Redis) SetIncrNotTouch(
 	val []byte, //        : encoded object
 	incrBy int64, //      : inc- or decrement RC by this value
 ) (
-	obj *Object, //       : object with new RC and previous last access time
+	obj *data.Object, //  : object with new RC and previous last access time
 	err error, //         : error if any
 ) {
 	var reply []int64
@@ -657,7 +660,7 @@ func (r *Redis) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
 
 func (r *Redis) beforeIncrHooks(key cipher.SHA256, incrBy int64) (err error) {
 	defer r.BeforeIncrHooksClose()
-	for _, hook := range r.beforeIncrHooks() {
+	for _, hook := range r.BeforeIncrHooks() {
 		if _, err = hook(key, incrBy); err != nil {
 			return
 		}
@@ -695,6 +698,12 @@ func (r *Redis) incr(
 		exists = ((*reply)[0] == 1)
 		vol    = (*reply)[1]
 	)
+
+	if exists == false {
+		err = data.ErrNotFound
+		r.CallAfterIncrHooks(key, 0, time.Time{}, err)
+		return
+	}
 
 	rc = (*reply)[2]
 	access = time.Unix(0, (*reply)[2])
@@ -767,7 +776,7 @@ func (r *Redis) changeStatAfterDel(rc, vol int64) {
 	}
 }
 
-func (r *Redis) Take(key cipher.SHA256) (obj *Object, err error) {
+func (r *Redis) Take(key cipher.SHA256) (obj *data.Object, err error) {
 
 	if err = r.beforeDelHooks(key); err != nil {
 		return
@@ -791,8 +800,8 @@ func (r *Redis) Take(key cipher.SHA256) (obj *Object, err error) {
 		return
 	}
 
-	r.changeStatAfterDel(rc, vol)
-	r.CallAfterIncrHooks(key, rc, access, err)
+	r.changeStatAfterDel(obj.RC, int64(len(obj.Val)))
+	r.CallAfterIncrHooks(key, obj.RC, obj.Access, err)
 	return
 }
 
@@ -802,7 +811,7 @@ func (r *Redis) Del(key cipher.SHA256) (err error) {
 		return
 	}
 
-	var reply int64
+	var reply []int64
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.delLua, 2,
 		"expire",
 		"hex",
@@ -842,13 +851,11 @@ func (r *Redis) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 
 	var (
 		hex string
-		key cipher.PubKey
+		key cipher.SHA256
 	)
 
-	for scan.Next(&key) {
-		if key, err = cipher.PubKeyFromHex(hex); err != nil {
-			panic(er) // unexpected
-		}
+	for scan.Next(&hex) == true {
+		key = cipher.MustSHA256FromHex(hex)
 		if err = iterateFunc(key); err != nil {
 			if err == data.ErrStopIteration {
 				break // brak the loop
