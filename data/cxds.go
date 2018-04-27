@@ -7,24 +7,11 @@ import (
 )
 
 //
-// Iterators.
+// Iterator.
 //
 
-// An IterateObjectsFunc used to iterate over objects
-// of the CXDS. All arguments are read only and must
-// not be modified.
-type IterateObjectsFunc func(key cipher.SHA256, obj *Object) (err error)
-
-// An IterateObjectsDelFunc used to iterate over objects
-// deleting them by choose. All arguments are read only
-// and must not be modified.
-type IterateObjectsDelFunc func(
-	key cipher.SHA256,
-	obj *Object,
-) (
-	del bool,
-	err error,
-)
+// An IterateKeysFunc used to iterate over keys.
+type IterateKeysFunc func(key cipher.SHA256) (err error)
 
 //
 // CXDS in person.
@@ -183,19 +170,15 @@ type CXDS interface {
 	//
 	// Iterate all keys in CXDS. Use ErrStopIteration to stop
 	// an iteration. The Iterate method never lock DB and any
-	// parallel Get-/Set-/Incr-/Del call can be performed with
-	// call of the Iterate at the same time. The Iterate
-	// method can skip elements created during its call.
-	// But the Iterate never called for deleted obejcts.
-	// Any order is not guaranteed. The Iterate can lock DB
-	// by time of the IterateObjectsFunc call. The Iterate
-	// method never updates access time. See also docs
-	// for the IterateObjectsFunc.
-	Iterate(iterateFunc IterateObjectsFunc) (err error)
-	// IterateDel used to remove objects. See also docs for
-	// the IterateObjectsDelFunc. The IterateDel works like
-	// the Iterate (e.g. don't lock DB allowing long calls).
-	IterateDel(iterateFunc IterateObjectsDelFunc) error
+	// parallel Get-/Set-/Incr-/Del/etc call can be performed
+	// with call of the Iterate at the same time. But, the
+	// Iterate can lock DB for time of the IterateKeysFunc
+	// call.
+	//
+	// Iterate never updates last access time.
+	//
+	// Iterate can skip new objects, and use deleted objects.
+	Iterate(iterateFunc IterateKeysFunc) (err error)
 
 	//
 	// Stat.
@@ -209,7 +192,7 @@ type CXDS interface {
 	// in bytes. The volume consist of payload
 	// only and not includes keys and any other
 	// meta information like references counter
-	// etc. The 'all' is volume of all obejcts,
+	// etc. The 'all' is volume of all objects,
 	// and the 'used' is volume of objects with
 	// RC greater then zero.
 	Volume() (all, used int64)
