@@ -128,3 +128,54 @@ func (o *object) Object() (obj *data.Object) {
 	obj.Create = time.Unix(0, o.Create.I)
 	return
 }
+
+type setReply struct {
+	rc     int64 // overwritten
+	access int64 // prev_vol
+	create int64 // prev_rc
+}
+
+func (s *setReply) UnmarshalRESP(r *bufio.Reader) (err error) {
+	var ah resp.ArrayHeader
+	if err = ah.UnmarshalRESP(r); err != nil {
+		return
+	}
+	if ah.N != 3 {
+		return fmt.Errorf("invalid response length: %d, want 3", ah.N)
+	}
+	for _, field := range []*int64{&s.rc, &s.access, &s.create} {
+		var i resp.Int
+		if err = i.UnmarshalRESP(r); err != nil {
+			return
+		}
+		*field = i.I // set
+	}
+	return
+}
+
+func (s *setReply) RC() int64 {
+	return s.rc
+}
+
+func (s *setReply) Access() time.Time {
+	return time.Unix(0, s.access)
+}
+
+func (s *setReply) Create() time.Time {
+	return time.Unix(0, s.create)
+}
+
+// SetRaw reply
+func (s *setReply) owerwritter() bool {
+	return s.rc == 1
+}
+
+// SetRaw reply
+func (s *setReply) prevVol() int64 {
+	return s.access
+}
+
+// SetRaw reply
+func (s *setReply) prevRC() int64 {
+	return s.create
+}
