@@ -278,7 +278,8 @@ func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
 
 	// exists (reply[0])
 	if reply[0] == 0 {
-		r.CallAfterTouchHooks(key, access, data.ErrNotFound)
+		err = data.ErrNotFound
+		r.CallAfterTouchHooks(key, access, err)
 		return
 	}
 
@@ -396,7 +397,10 @@ func (r *Redis) get(
 	// exists (is nil)
 	if obj = reply.Object(); obj == nil {
 		err = data.ErrNotFound
+		r.CallAfterGetHooks(key, nil, err)
+		return
 	}
+
 	r.changeStatAfter(obj.RC, incrBy, int64(len(obj.Val)))
 	r.CallAfterGetHooks(key, obj, err)
 	return
@@ -738,43 +742,88 @@ func (r *Redis) IncrNotTouch(
 
 func (r *Redis) beforeDelHooks(key cipher.SHA256) (err error) {
 	defer r.BeforeDelHooksClose()
-	for _, hook := range r.BeforeDelHooks(key) {
-		//
+	for _, hook := range r.BeforeDelHooks() {
+		if _, err = hook(key); err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (r *Redis) changeStatAfterDel(rc, vol int64) {
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
+	r.amount.all--
+	r.volume.all -= vol
+
+	if rc > 0 {
+		r.amount.used--
+		r.volume.used -= vol
 	}
 }
 
 func (r *Redis) Take(key cipher.SHA256) (obj *Object, err error) {
 
-	if err = r.beforeIncrHooks(key, incrBy); err != nil {
+	if err = r.beforeDelHooks(key); err != nil {
 		return
 	}
 
-	if err = r.pool.Do(action); err != nil {
-		r.CallAfterIncrHooks(key, rc, access, err) // key, 0, time.Time{}, err
+	var reply object
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.takeLua, 2,
+		"expire",
+		"hex",
+		r.expire,
+		key.Hex(),
+	))
+	if err != nil {
+		r.CallAfterDelHooks(key, nil, err)
 		return
 	}
 
-	// exists, vol, rc, access
-	if len(*reply) != 4 {
-		err = fmt.Errorf("invalid response length %d, want 4", len(*reply))
+	if obj = reply.Object(); obj == nil {
+		err = data.ErrNotFound
+		r.CallAfterDelHooks(key, nil, err)
 		return
 	}
 
-	var (
-		exists = ((*reply)[0] == 1)
-		vol    = (*reply)[1]
-	)
-
-	rc = (*reply)[2]
-	access = time.Unix(0, (*reply)[2])
-
-	r.changeStatAfter(rc, incrBy, vol)
+	r.changeStatAfterDel(rc, vol)
 	r.CallAfterIncrHooks(key, rc, access, err)
 	return
 }
 
 func (r *Redis) Del(key cipher.SHA256) (err error) {
-	//
+
+	if err = r.beforeDelHooks(key); err != nil {
+		return
+	}
+
+	var reply int64
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.delLua, 2,
+		"expire",
+		"hex",
+		r.expire,
+		key.Hex(),
+	))
+	if err != nil {
+		r.CallAfterDelHooks(key, nil, err)
+		return
+	}
+
+	var (
+		deleted = (reply[0] == 1)
+		vol     = reply[1]
+		rc      = reply[2]
+	)
+
+	if deleted == false {
+		err = data.ErrNotFound
+		r.CallAfterDelHooks(key, nil, err)
+		return
+	}
+
+	r.changeStatAfterDel(rc, vol)
+	r.CallAfterDelHooks(key, nil, nil)
 	return
 }
 
@@ -815,11 +864,13 @@ func (r *Redis) IsSafeClosed() (safeClosed bool) {
 // Close the CXDS
 func (r *Redis) Close() (err error) {
 
-	err = r.client.Do(radix.FlatCmd(nil, "SET", "safeClosed", true))
+	// TODO (kostyarin): unsubscribe 'expired' events handler first
+
+	err = r.pool.Do(radix.FlatCmd(nil, "SET", "safeClosed", true))
 	if err != nil {
-		r.client.Close() // drop error
+		r.pool.Close() // drop error
 		return
 	}
 
-	return r.client.Close()
+	return r.pool.Close()
 }

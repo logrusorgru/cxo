@@ -1,11 +1,22 @@
 
 --[[
 	keys/argv: expire, hex
-	reply:     (nil)
+	reply:     deleted, vol, rc
 ]]--
 
 local expire = ARGV[1];
 local hex    = ARGV[2];
+
+local exists = redis.call("EXISTS", hex);
+
+-- if not exists
+if exists == 0 then
+	return {0, false, false};
+end
+
+local object = redis.call("HMGET", hex,
+	"val", -- 1
+	"rc"); -- 2
 
 -- delete hash
 redis.call("DEL", hex);
@@ -15,4 +26,4 @@ if expire ~= 0 then
 	redis.call("DEL", hex .. ".ex");
 end
 
-return;
+return {1, string.len(object[1]), object[2]};

@@ -170,10 +170,11 @@ type CXDS interface {
 	// Take deletes an object unconditionally returinig:
 	// (1) deleted object, (2) ErrNotFound if object
 	// doesn't exist (3) any other error (DB failure,
-	// for exmple)
+	// for exmple).
 	Take(key cipher.SHA256) (obj *Object, err error)
 	// Del deletes an object unconditionally. The Del
-	// method never returns ErrNotFound error
+	// method returns ErrNotFound error if object doens't
+	// exist in DB.
 	Del(key cipher.SHA256) (err error)
 
 	//
