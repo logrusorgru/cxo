@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/skycoin/cxo/data"
@@ -29,8 +30,9 @@ type Redis struct {
 	expireFunc ExpireFunc //
 
 	// amount and volume
-	amount stat
-	volume stat
+	statMutex sync.Mutex
+	amount    stat
+	volume    stat
 
 	data.HooksKeepper // hooks
 
@@ -102,6 +104,9 @@ func (r *Redis) getSafeClosed() (safeClosed bool, err error) {
 }
 
 func (r *Redis) storeStat() (err error) {
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
 	err = r.pool.Do(radix.FlatCmd(nil, "HMSET", "stat",
 		"amount_all", r.amount.all,
 		"amount_used", r.amount.used,
@@ -112,6 +117,9 @@ func (r *Redis) storeStat() (err error) {
 }
 
 func (r *Redis) loadStat() (err error) {
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
 	var stat []int64
 	err = r.pool.Do(radix.FlatCmd(&stat, "HMGET", "stat",
 		"amount_all",
@@ -345,6 +353,9 @@ func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
 }
 
 func (r *Redis) changeStatAfter(rc, incrBy, volume int64) {
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
 	if incrBy == 0 {
 		return // no changes
 	}
@@ -557,17 +568,51 @@ func (r *Redis) SetIncrNotTouch(
 		), key, val, incrBy)
 }
 
-func (r *Redis) changeStatAfterSetRaw(rc, vol, prc, pvol int64) {
-	//
+func (r *Redis) changeStatAfterSetRaw(
+	overwritten bool, // :
+	pvol, prc int64, //  : previous
+	vol, rc int64, //    : new
+) {
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
+	// regards to collisons or use of blank value for some developer reasons
+
+	if overwritten == true {
+		r.volume.all += (vol - pvol) // diff
+		if prc <= 0 {                // was dead
+			if rc > 0 { // reborn
+				r.amount.used++
+				r.volume.used += vol
+			}
+			// else -> still dead (do nothing)
+		} else { // was alive
+			if rc <= 0 { // kill
+				r.amount.used--
+				r.volume.used -= pvol
+			} else { // still alive
+				r.volume.used += (vol - pvol) // diff
+			}
+		}
+	} else { // new object created
+		r.volume.all += vol
+		r.amount.all++
+		if rc > 0 { // alive object
+			r.volume.used += vol
+			r.amount.used++
+		}
+	}
+
 }
 
+// SetRaw object, overwriting existing if exists
 func (r *Redis) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
 
 	if err = r.beforeSetHooks(key, obj.Val, 0); err != nil {
 		return
 	}
 
-	var reply []int64 // prev_rc, prev_vols
+	var reply []int64 // overwritten, prev_vol, prev_rc
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.setRawLua, 6,
 		"expire",
 		"hex",
@@ -588,15 +633,66 @@ func (r *Redis) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
 		return
 	}
 
-	if len(reply) != 2 {
-		err = fmt.Errorf("invalid response length %d, want 2", len(reply))
+	if len(reply) != 3 {
+		err = fmt.Errorf("invalid response length %d, want 3", len(reply))
 		return
 	}
 
-	// change stat after the SetRaw
-
-	r.changeStatAfter(obj.RC, incrBy, int64(len(val)))
+	r.changeStatAfterSetRaw(
+		reply[0] == 1,      //          : overwritten
+		reply[1], reply[2], //          : prev_vol, prev_rc
+		int64(len(obj.Val)), obj.RC, // : vol, rc
+	)
 	r.CallAfterSetHooks(key, obj, err)
+	return
+}
+
+func (r *Redis) beforeIncrHooks(key cipher.SHA256, incrBy int64) (err error) {
+	defer r.BeforeIncrHooksClose()
+	for _, hook := range r.beforeIncrHooks() {
+		if _, err = hook(key, incrBy); err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (r *Redis) incr(
+	reply *[]int64, //         :
+	action radix.CmdAction, // :
+	key cipher.SHA256, //      :
+	incrBy int64, //           :
+) (
+	rc int64, //               :
+	access time.Time, //       :
+	err error, //              :
+) {
+
+	if err = r.beforeIncrHooks(key, incrBy); err != nil {
+		return
+	}
+
+	if err = r.pool.Do(action); err != nil {
+		r.CallAfterIncrHooks(key, rc, access, err) // key, 0, time.Time{}, err
+		return
+	}
+
+	// exists, vol, rc, access
+	if len(*reply) != 4 {
+		err = fmt.Errorf("invalid response length %d, want 4", len(*reply))
+		return
+	}
+
+	var (
+		exists = ((*reply)[0] == 1)
+		vol    = (*reply)[1]
+	)
+
+	rc = (*reply)[2]
+	access = time.Unix(0, (*reply)[2])
+
+	r.changeStatAfter(rc, incrBy, vol)
+	r.CallAfterIncrHooks(key, rc, access, err)
 	return
 }
 
@@ -604,25 +700,43 @@ func (r *Redis) Incr(
 	key cipher.SHA256, // : hash of the object
 	incrBy int64, //      : inr- or decrement by
 ) (
-	rc int64, //          : new RC
-	access time.Time, //  : previous last access time
-	err error, //         : error if any
+	int64, //             : new RC
+	time.Time, //         : previous last access time
+	error, //             : error if any
 ) {
-	//
-	return
+	var reply []int64
+	return r.incr(&reply, radix.FlatCmd(&reply, "EVALSHA", r.incrLua, 4,
+		"expire",
+		"hex",
+		"incr",
+		"now",
+		r.expire,
+		key.Hex(),
+		incrBy,
+		time.Now().UnixNano(),
+	), key, incrBy)
 }
 
 func (r *Redis) IncrNotTouch(
 	key cipher.SHA256, // : hash of the object
 	incrBy int64, //      : inr- or decrement by
 ) (
-	rc int64, //          : new RC
-	access time.Time, //  : previous last access time
-	err error, //         : error if any
+	int64, //             : new RC
+	time.Time, //         : previous last access time
+	error, //             : error if any
 ) {
-	//
-	return
+	var reply []int64
+	return r.incr(&reply, radix.FlatCmd(&reply, "EVALSHA", r.incrLua, 4,
+		"expire",
+		"hex",
+		"incr",
+		r.expire,
+		key.Hex(),
+		incrBy,
+	), key, incrBy)
 }
+
+// ...
 
 func (r *Redis) Take(key cipher.SHA256) (obj *Object, err error) {
 	//
@@ -644,14 +758,20 @@ func (r *Redis) IterateDel(iterateFunc IterateObjectsDelFunc) (err error) {
 	return
 }
 
+// Amount of objects
 func (r *Redis) Amount() (all, used int64) {
-	//
-	return
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
+	return r.amount.all, r.amount.used
 }
 
+// Volume of object (payload only)
 func (r *Redis) Volume() (all, used int64) {
-	//
-	return
+	r.statMutex.Lock()
+	defer r.statMutex.Unlock()
+
+	return r.volume.all, r.volume.used
 }
 
 // IsSafeClosed is flag that means that DB has been

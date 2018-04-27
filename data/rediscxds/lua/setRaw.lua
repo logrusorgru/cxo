@@ -1,7 +1,7 @@
 
 --[[
 	keys/argv: expire, hex, val, rc, access, create
-	reply:     prev_rc, prev_vol
+	reply:     overwritten, prev_vol, prev_rc
 ]]--
 
 local expire = ARGV[1];
@@ -11,9 +11,22 @@ local rc     = ARGV[4];
 local access = ARGV[5];
 local create = ARGV[6];
 
-local prev = redis.call("HMGET", hex,
-	"val", -- 1
-	"rc"); -- 2
+-- is exists
+local exists = redis.call("EXISTS", hex);
+
+-- previous values
+local prev_vol = 0;
+local prev_rc  = 0;
+
+-- get previous rc and volume (length of val)
+if exists == 1 then
+	prev = redis.call("HMGET", hex,
+		"val", -- 1
+		"rc"); -- 2
+
+	prev_vol = string.len(prev[1]);
+	prev_rc  = prev[2];
+end
 
 -- create new or overwrite existing
 redis.call("HMSET", hex,
@@ -28,8 +41,4 @@ if expire ~= 0 then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-if prev[1] == false then
-	return {prev[2], prev[1]}; -- 0, 0
-end
-
-return {prev[2], string.len(prev[1])}; -- prev_rc, len(prev_val)
+return {exists, prev_vol, prev_rc};
