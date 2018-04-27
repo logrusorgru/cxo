@@ -37,8 +37,12 @@ redis.call("HMSET", hex,
 
 
 -- update expire (object can be removed between shutdown and start)
-if expire ~= 0 then
+if expire ~= "0" then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {exists, prev_vol, prev_rc};
+return {
+	exists,
+	prev_vol,
+	tonumber(prev_rc)
+};

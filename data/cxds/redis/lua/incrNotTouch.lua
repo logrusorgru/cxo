@@ -12,7 +12,7 @@ local exists = redis.call("EXISTS", hex);
 
 -- if not exist
 if exists == 0 then
-	return {0, false, false, false};
+	return {0, 0, 0, 0};
 end
 
 -- get last access time and value to get its volume
@@ -25,8 +25,13 @@ local rc = redis.call("HINCRBY", hex,
 	"rc", incr);
 
 -- update expire (object can be removed between shutdown and start)
-if expire ~= 0 then
+if expire ~= "0" then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {1, string.len(object[1]), rc, object[2]};
+return {
+	1,
+	string.len(object[1]),
+	rc,
+	tonumber(object[2])
+};

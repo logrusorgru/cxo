@@ -1,7 +1,6 @@
 package redis
 
 import (
-	"bufio"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,7 +10,6 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/mediocregopher/radix.v3"
-	"github.com/mediocregopher/radix.v3/resp"
 )
 
 type stat struct {
@@ -20,13 +18,13 @@ type stat struct {
 }
 
 // A Redis implments data.CXDS
-// interface over Redis database.
+// interface over Redis <redis.io>.
 type Redis struct {
 	pool         *radix.Pool // conenctions pool
 	isSafeClosed bool        // current state
 
 	// LRU timeout feature
-	expire     int64      // time.Duration
+	expire     int64      // a'la time.Duration in seconds
 	expireFunc ExpireFunc //
 
 	// scanning (iterate)
@@ -47,15 +45,19 @@ type Redis struct {
 	delLua, takeLua                                        string
 }
 
-// NewCXDS creates CXDS based on Redis
-func NewCXDS(
+// NewRedis creates data.CXDS based on Redis <redis.io>
+func NewRedis(
 	network string, // : "tcp", "tcp4" or "tcp6"
 	addr string, //    : address of Redis server
 	conf *Config, //   : configurations
 ) (
-	ds data.CXDS, //   : the data.CXDS
+	r *Redis, //       : implements data.CXDS
 	err error, //      : error if any
 ) {
+
+	if conf == nil {
+		conf = NewConfig() // use defaults
+	}
 
 	if err = conf.Validate(); err != nil {
 		return
@@ -67,33 +69,38 @@ func NewCXDS(
 		return
 	}
 
-	var rc Redis
-	rc.pool = pool
-	rc.expire = int64(conf.Expire / time.Second)
-	rc.expireFunc = conf.ExpireFunc
-	rc.scanCount = conf.ScanCount
+	var rs Redis
+	rs.pool = pool
+	rs.expire = int64(conf.Expire / time.Second)
+	rs.expireFunc = conf.ExpireFunc
+	rs.scanCount = conf.ScanCount
 
-	if err = rc.loadScripts(); err != nil {
+	if err = rs.loadScripts(); err != nil {
 		pool.Close()
 		return
 	}
 
-	if err = rc.subscribeExpiredEvents(conf); err != nil {
+	if err = rs.subscribeExpiredEvents(conf); err != nil {
 		pool.Close()
 		return
 	}
 
-	if rc.isSafeClosed, err = rc.getSafeClosed(); err != nil {
+	if err = rs.loadStat(); err != nil {
 		pool.Close()
 		return
 	}
 
-	if err = rc.setSafeClosed(false); err != nil {
+	if rs.isSafeClosed, err = rs.getSafeClosed(); err != nil {
 		pool.Close()
 		return
 	}
 
-	ds = &rc
+	if err = rs.setSafeClosed(false); err != nil {
+		pool.Close()
+		return
+	}
+
+	r = &rs
 	return
 }
 
@@ -124,8 +131,8 @@ func (r *Redis) loadStat() (err error) {
 	r.statMutex.Lock()
 	defer r.statMutex.Unlock()
 
-	var stat []int64
-	err = r.pool.Do(radix.FlatCmd(&stat, "HMGET", "stat",
+	var reply statReply
+	err = r.pool.Do(radix.FlatCmd(&reply, "HMGET", "stat",
 		"amount_all",
 		"amount_used",
 		"volume_all",
@@ -134,13 +141,10 @@ func (r *Redis) loadStat() (err error) {
 	if err != nil {
 		return
 	}
-	if len(stat) != 4 {
-		return fmt.Errorf("invalid response length %d, want 4", len(stat))
-	}
-	r.amount.all = stat[0]
-	r.amount.used = stat[1]
-	r.volume.all = stat[2]
-	r.volume.used = stat[3]
+	r.amount.all = reply.amountAll
+	r.amount.used = reply.amountUsed
+	r.volume.all = reply.volumeAll
+	r.volume.used = reply.volumeUsed
 	return
 }
 
@@ -165,7 +169,7 @@ func (r *Redis) loadScripts() (err error) {
 		{delLua, &r.delLua},
 		{takeLua, &r.takeLua},
 	} {
-		err = r.pool.Do(radix.Cmd(sh.hash, "SCRIPT LOAD", sh.script))
+		err = r.pool.Do(radix.Cmd(sh.hash, "SCRIPT", "LOAD", sh.script))
 		if err != nil {
 			return
 		}
@@ -187,7 +191,7 @@ func (r *Redis) subscribeExpiredEvents(conf *Config) (err error) {
 	}
 
 	// enable 'expired' event notifications
-	err = r.pool.Do(radix.Cmd(nil, "CONFIG SET",
+	err = r.pool.Do(radix.Cmd(nil, "CONFIG", "SET",
 		"notify-keyspace-events", "Ex",
 	))
 
@@ -255,14 +259,15 @@ func (r *Redis) beforeTouchHooks(key cipher.SHA256) (err error) {
 	return
 }
 
+// Touch updates access time of object by key. The Touch returns
+// data.ErrNotFound if object doesn't exist.
 func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
 
 	if err = r.beforeTouchHooks(key); err != nil {
 		return
 	}
 
-	var reply []int64 // exists, access
-
+	var reply touchReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.touchLua, 3,
 		"expire",
 		"hex",
@@ -273,24 +278,18 @@ func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
 	))
 
 	if err != nil {
-		r.CallAfterTouchHooks(key, access, err)
+		r.CallAfterTouchHooks(key, time.Time{}, err)
 		return
 	}
 
-	if len(reply) != 2 {
-		err = fmt.Errorf("invalid reply length %d, want 2", len(reply))
-		r.CallAfterTouchHooks(key, access, err)
-		return
-	}
-
-	// exists (reply[0])
-	if reply[0] == 0 {
+	// if not exist
+	if reply.Exists.I == 0 {
 		err = data.ErrNotFound
-		r.CallAfterTouchHooks(key, access, err)
+		r.CallAfterTouchHooks(key, time.Time{}, err)
 		return
 	}
 
-	access = time.Unix(0, reply[1])
+	access = time.Unix(0, reply.Access.I)
 	r.CallAfterTouchHooks(key, access, nil)
 	return
 }
@@ -298,57 +297,6 @@ func (r *Redis) Touch(key cipher.SHA256) (access time.Time, err error) {
 //
 // Get
 //
-
-type object struct {
-	Exists resp.Int             // bool
-	Val    resp.BulkStringBytes // []byte
-	RC     resp.Int             // int64
-	Access resp.Int             // int64
-	Create resp.Int             // int64
-}
-
-func (o *object) UnmarshalRESP(r *bufio.Reader) (err error) {
-
-	var ah resp.ArrayHeader
-	if err = ah.UnmarshalRESP(r); err != nil {
-		return
-	}
-
-	if ah.N != 5 {
-		return fmt.Errorf("invalid resposne length %d, want 5", ah.N)
-	}
-
-	if err = o.Exists.UnmarshalRESP(r); err != nil {
-		return
-	}
-	if err = o.Val.UnmarshalRESP(r); err != nil {
-		return
-	}
-	if err = o.RC.UnmarshalRESP(r); err != nil {
-		return
-	}
-	if err = o.Access.UnmarshalRESP(r); err != nil {
-		return
-	}
-	err = o.Create.UnmarshalRESP(r)
-	return
-
-}
-
-// return data.Object or nil if not exist
-func (o *object) Object() (obj *data.Object) {
-
-	if o.Exists.I == 0 {
-		return
-	}
-
-	obj = new(data.Object)
-	obj.Val = o.Val.B
-	obj.RC = o.RC.I
-	obj.Access = time.Unix(0, o.Access.I)
-	obj.Create = time.Unix(0, o.Create.I)
-	return
-}
 
 func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
 	defer r.BeforeGetHooksClose()
@@ -413,6 +361,9 @@ func (r *Redis) get(
 	return
 }
 
+// Get object by key, updating access time, but returning
+// object with previous access time. The Get method returns
+// data.ErrNotFound if obejct doesn't exist.
 func (r *Redis) Get(key cipher.SHA256) (*data.Object, error) {
 	var reply object
 	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
@@ -425,6 +376,8 @@ func (r *Redis) Get(key cipher.SHA256) (*data.Object, error) {
 	), key, 0)
 }
 
+// GetIncr is the same as the Get. The GetIncr method
+// allows to change RC of object.
 func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*data.Object, error) {
 	var reply object
 	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 4,
@@ -439,9 +392,11 @@ func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*data.Object, error) {
 	), key, incrBy)
 }
 
+// GetNotTouch is the same as the Get, but the GetNotTouch method never
+// updates access time.
 func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *data.Object, err error) {
 	var reply object
-	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getNotTouchLua, 3,
+	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getNotTouchLua, 2,
 		"expire",
 		"hex",
 		r.expire,
@@ -449,6 +404,8 @@ func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *data.Object, err error) {
 	), key, 0)
 }
 
+// GetIncrNotTouch is the same as the GetNotTouch, but it allows to
+// change RC of object.
 func (r *Redis) GetIncrNotTouch(
 	key cipher.SHA256, incrBy int64,
 ) (*data.Object, error) {
@@ -518,10 +475,13 @@ func (r *Redis) set(
 	return
 }
 
+// Set or update object incrementing RC by 1 and updating access time
 func (r *Redis) Set(key cipher.SHA256, val []byte) (*data.Object, error) {
 	return r.SetIncr(key, val, 1)
 }
 
+// SetIncr sets or updates object incrementing RC by given value and
+// updating access time
 func (r *Redis) SetIncr(
 	key cipher.SHA256, // : hash of the object
 	val []byte, //        : encoded object
@@ -545,6 +505,9 @@ func (r *Redis) SetIncr(
 	), key, val, incrBy)
 }
 
+// SetNotTouch is the same as the Set, but it doesn't update access time.
+// But, if it creates new object, then the access time is set to now.
+// Since, the access time can't be less then create time.
 func (r *Redis) SetNotTouch(
 	key cipher.SHA256, // : hash of the object
 	val []byte, //        : encoded object
@@ -555,6 +518,8 @@ func (r *Redis) SetNotTouch(
 	return r.SetIncrNotTouch(key, val, 1)
 }
 
+// SetIncrNotTouch is the same as the SetNotTouch,
+// that uses given value to increment RC
 func (r *Redis) SetIncrNotTouch(
 	key cipher.SHA256, // : hash of the object
 	val []byte, //        : encoded object
@@ -713,6 +678,7 @@ func (r *Redis) incr(
 	return
 }
 
+// Incr changes RC of object by key
 func (r *Redis) Incr(
 	key cipher.SHA256, // : hash of the object
 	incrBy int64, //      : inr- or decrement by
@@ -734,6 +700,7 @@ func (r *Redis) Incr(
 	), key, incrBy)
 }
 
+// IncrNotTouch is like the Incr but doesn't update access time
 func (r *Redis) IncrNotTouch(
 	key cipher.SHA256, // : hash of the object
 	incrBy int64, //      : inr- or decrement by
@@ -776,6 +743,7 @@ func (r *Redis) changeStatAfterDel(rc, vol int64) {
 	}
 }
 
+// Take is get and delete
 func (r *Redis) Take(key cipher.SHA256) (obj *data.Object, err error) {
 
 	if err = r.beforeDelHooks(key); err != nil {
@@ -805,6 +773,7 @@ func (r *Redis) Take(key cipher.SHA256) (obj *data.Object, err error) {
 	return
 }
 
+// Del by key
 func (r *Redis) Del(key cipher.SHA256) (err error) {
 
 	if err = r.beforeDelHooks(key); err != nil {
@@ -898,12 +867,25 @@ func (r *Redis) Pool() *radix.Pool {
 	return r.pool
 }
 
-// Close the CXDS
+// Close the Redis
 func (r *Redis) Close() (err error) {
 
 	// TODO (kostyarin): unsubscribe 'expired' events handler first
 
-	err = r.pool.Do(radix.FlatCmd(nil, "SET", "safeClosed", true))
+	if err = r.storeStat(); err != nil {
+		r.pool.Close() // drop error
+		return
+	}
+
+	if err = r.setSafeClosed(true); err != nil {
+		r.pool.Close() // drop error
+		return
+	}
+
+	// no way to remove loaded scripts, but it is not neccessary
+
+	// dump to disck synchronously
+	err = r.pool.Do(radix.Cmd(nil, "SAVE"))
 	if err != nil {
 		r.pool.Close() // drop error
 		return

@@ -4,11 +4,11 @@
 	reply:     rc, access, create
 ]]--
 
-local expire = ARGV[1];
-local hex    = ARGV[2];
-local val    = ARGV[3];
-local incr   = ARGV[4];
-local now    = ARGV[5];
+local expire = ARGV[1]; -- integer
+local hex    = ARGV[2]; -- string
+local val    = ARGV[3]; -- bulk string
+local incr   = ARGV[4]; -- integer
+local now    = ARGV[5]; -- integer
 
 local exists = redis.call("EXISTS", hex);
 
@@ -16,8 +16,8 @@ local rc     = 0;
 local access = 0;
 local create = 0;
 
--- if not exist
-if exists == 0 then
+-- if exists
+if exists == 1 then
 
 	-- get existing
 	local object = redis.call("HMGET", hex,
@@ -51,8 +51,12 @@ else
 end
 
 -- update expire (object can be removed between shutdown and start)
-if expire ~= 0 then
+if expire ~= "0" then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {rc, access, create};
+return {
+	tonumber(rc),
+	tonumber(access),
+	tonumber(create)
+};

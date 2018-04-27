@@ -4,13 +4,329 @@ package cxds
 
 import (
 	"bytes"
-	"errors"
+	//"errors"
 	"testing"
+	"time"
 
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/skycoin/cxo/data"
 )
+
+func keyValueByString(s string) (key cipher.SHA256, val []byte) {
+	val = []byte(s)
+	key = cipher.SumSHA256(val)
+	return
+}
+
+func areObjectsEqual(o, e *data.Object) (eq bool) {
+	eq = bytes.Compare(o.Val, e.Val) == 0 &&
+		o.RC == e.RC &&
+		o.Access.Equal(e.Access) &&
+		o.Create.Equal(o.Create)
+	return
+}
+
+func incrBys() []int64 {
+	return []int64{-1, 0, 1}
+}
+
+func Hooks(t *testing.T, ds data.CXDS) {
+	// Hooks() (hooks Hooks)
+
+	// nothing to test here
+}
+
+func Touch(t *testing.T, ds data.CXDS) {
+	// Touch(key cipher.SHA256) (access time.Time, err error)
+
+	var key, val = keyValueByString("something")
+
+	t.Run("not exist", func(t *testing.T) {
+		if _, err := ds.Touch(key); err == nil {
+			t.Error("missing 'not found' error")
+		} else if err != data.ErrNotFound {
+			t.Error("unexpected error:", err)
+		}
+	})
+
+	t.Run("exist", func(t *testing.T) {
+
+		var obj, err = ds.Set(key, val)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		var access time.Time
+		if access, err = ds.Touch(key); err != nil {
+			t.Error(err)
+			return
+		}
+
+		if access.Equal(obj.Access) == false {
+			t.Errorf("unexpected last access time: %s, want %s",
+				obj.Access, access)
+			return
+		}
+
+		var tobj *data.Object
+		if tobj, err = ds.Get(key); err != nil {
+			t.Error("unexpected error")
+			return
+		}
+
+		if obj.Access.Before(tobj.Access) == false {
+			t.Error("not touched")
+		}
+
+		// compare objects
+		obj.Access = tobj.Access
+		if areObjectsEqual(obj, tobj) == false {
+			t.Error("something changed in objects")
+		}
+
+	})
+}
+
+func Get(t *testing.T, ds data.CXDS) {
+	// Get(key cipher.SHA256) (obj *Object, err error)
+
+	var key, val = keyValueByString("something")
+
+	t.Run("not exist", func(t *testing.T) {
+		if _, err := ds.Get(key); err == nil {
+			t.Error("missing error")
+		} else if err != data.ErrNotFound {
+			t.Error("unexpected error")
+		}
+	})
+
+	t.Run("exists", func(t *testing.T) {
+		var obj, err = ds.Set(key, val)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var gobj *data.Object
+		if gobj, err = ds.Get(key); err != nil {
+			t.Error(err)
+			return
+		}
+		if areObjectsEqual(obj, gobj) == false {
+			t.Error("object has been changed")
+		}
+		if gobj, err = ds.Get(key); err != nil {
+			t.Error(err)
+			return
+		}
+		if gobj.Access.After(obj.Access) == false {
+			t.Error("access time not updated")
+		}
+	})
+}
+
+func GetIncr(t *testing.T, ds data.CXDS) {
+	// GetIncr(key cipher.SHA256, incrBy int64) (obj *Object, err error)
+
+	var key, val = keyValueByString("something")
+
+	t.Run("not exist", func(t *testing.T) {
+		for _, incrBy := range incrBys() {
+			if _, err := ds.GetIncr(key, incrBy); err == nil {
+				t.Error("missing error")
+			} else if err != data.ErrNotFound {
+				t.Error("unexpected error")
+			}
+		}
+	})
+
+	t.Run("exists", func(t *testing.T) {
+		var obj, err = ds.Set(key, val)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var gobj *data.Object
+		for i, incrBy := range incrBys() {
+			if gobj, err = ds.GetIncr(key, incrBy); err != nil {
+				t.Error(err)
+				return
+			}
+			if i > 0 {
+				if gobj.Access.After(obj.Access) == false {
+					t.Error("access time not updated")
+				}
+			}
+			obj.Access = gobj.Access // for next loop
+			if gobj.RC != obj.RC+incrBy {
+				t.Error("wrong RC", i, incrBy, obj.RC, gobj.RC)
+			}
+			obj.RC = gobj.RC // for next loop
+		}
+	})
+}
+
+func GetNotTouch(t *testing.T, ds data.CXDS) {
+	// GetNotTouch(key cipher.SHA256) (obj *Object, err error)
+
+	var key, val = keyValueByString("something")
+
+	t.Run("not exist", func(t *testing.T) {
+		if _, err := ds.GetNotTouch(key); err == nil {
+			t.Error("missing error")
+		} else if err != data.ErrNotFound {
+			t.Error("unexpected error")
+		}
+	})
+
+	t.Run("exists", func(t *testing.T) {
+		var obj, err = ds.Set(key, val)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var gobj *data.Object
+		if gobj, err = ds.GetNotTouch(key); err != nil {
+			t.Error(err)
+			return
+		}
+		if areObjectsEqual(obj, gobj) == false {
+			t.Error("object has been changed")
+		}
+		if gobj, err = ds.GetNotTouch(key); err != nil {
+			t.Error(err)
+			return
+		}
+		if gobj.Access.Equal(obj.Access) == false {
+			t.Error("access time updated")
+		}
+	})
+}
+
+func GetIncrNotTouch(t *testing.T, ds data.CXDS) {
+	// GetIncrNotTouch(key cipher.SHA256, incrBy int64) (obj *Object, err error)
+
+	var key, val = keyValueByString("something")
+
+	t.Run("not exist", func(t *testing.T) {
+		for _, incrBy := range incrBys() {
+			if _, err := ds.GetIncrNotTouch(key, incrBy); err == nil {
+				t.Error("missing error")
+			} else if err != data.ErrNotFound {
+				t.Error("unexpected error")
+			}
+		}
+	})
+
+	t.Run("exists", func(t *testing.T) {
+		var obj, err = ds.Set(key, val)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var gobj *data.Object
+		for i, incrBy := range incrBys() {
+			if gobj, err = ds.GetIncrNotTouch(key, incrBy); err != nil {
+				t.Error(err)
+				return
+			}
+			if i > 0 {
+				if gobj.Access.Equal(obj.Access) == false {
+					t.Error("access time updated")
+				}
+			}
+			if gobj.RC != obj.RC+incrBy {
+				t.Error("wrong RC", i, incrBy, obj.RC, gobj.RC)
+			}
+			obj.RC = gobj.RC // for next loop
+		}
+	})
+}
+
+func Set(t *testing.T, ds data.CXDS) {
+	// Set(key cipher.SHA256, val []byte) (obj *Object, err error)
+
+	//
+}
+
+func SetIncr(t *testing.T, ds data.CXDS) {
+	// SetIncr(key cipher.SHA256, val []byte, incrBy int64) (obj *Object, err error)
+
+	//
+}
+
+func SetNotTouch(t *testing.T, ds data.CXDS) {
+	// SetNotTouch(key cipher.SHA256, val []byte) (obj *Object, err error)
+
+	//
+}
+
+func SetIncrNotTouch(t *testing.T, ds data.CXDS) {
+	// SetIncrNotTouch(key cipher.SHA256, val []byte, incrBy int64) (obj *Object, err error)
+
+	//
+}
+
+func SetRaw(t *testing.T, ds data.CXDS) {
+	// SetRaw(key cipher.SHA256, obj *Object) (err error)
+
+	//
+}
+
+func Incr(t *testing.T, ds data.CXDS) {
+	// Incr(key cipher.SHA256, incrBy int64) (rc int64, access time.Time, err error)
+
+	//
+}
+
+func IncrNotTouch(t *testing.T, ds data.CXDS) {
+	// IncrNotTouch(key cipher.SHA256, incrBy int64) (rc int64, access time.Time, err error)
+
+	//
+}
+
+func Take(t *testing.T, ds data.CXDS) {
+	// Take(key cipher.SHA256) (obj *Object, err error)
+
+	//
+}
+
+func Del(t *testing.T, ds data.CXDS) {
+	// Del(key cipher.SHA256) (err error)
+
+	//
+}
+
+func Iterate(t *testing.T, ds data.CXDS) {
+	// Iterate(iterateFunc IterateKeysFunc) (err error)
+
+	//
+}
+
+func Amount(t *testing.T, ds data.CXDS) {
+	// Amount() (all, used int64)
+
+	//
+}
+
+func Volume(t *testing.T, ds data.CXDS) {
+	// Volume() (all, used int64)
+
+	//
+}
+
+func IsSafeClosed(t *testing.T, ds data.CXDS) {
+	// IsSafeClosed() bool
+
+	//
+}
+
+func Close(t *testing.T, ds data.CXDS) {
+	// Close() (err error)
+
+	//
+}
 
 /*
 

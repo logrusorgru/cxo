@@ -16,8 +16,8 @@ local rc     = 0;
 local access = 0;
 local create = 0;
 
--- if not exist
-if exists == 0 then
+-- if exists
+if exists == 1 then
 
 	-- get existing
 	local object = redis.call("HMGET", hex,
@@ -49,8 +49,12 @@ else
 end
 
 -- update expire (object can be removed between shutdown and start)
-if expire ~= 0 then
+if expire ~= "0" then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {rc, access, create};
+return {
+	tonumber(rc),
+	tonumber(access),
+	tonumber(create)
+};

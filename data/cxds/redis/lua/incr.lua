@@ -13,7 +13,7 @@ local exists = redis.call("EXISTS", hex);
 
 -- if not exist
 if exists == 0 then
-	return {0, false, false, false};
+	return {0, 0, 0, 0};
 end
 
 local object = redis.call("HMGET", hex,
@@ -33,8 +33,13 @@ redis.call("HMSET", hex,
 	"access", now); -- touch
 
 -- update expire (object can be removed between shutdown and start)
-if expire ~= 0 then
+if expire ~= "0" then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {1, vol, rc, object[3]};
+return {
+	1,
+	vol,
+	rc,
+	tonumber(object[3])
+};
