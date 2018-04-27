@@ -1,7 +1,7 @@
 
 --[[
 	keys/argv: expire, hex, incr
-	reply:     exists, rc, access
+	reply:     exists, vol, rc, access
 ]]--
 
 local expire = ARGV[1];
@@ -12,11 +12,13 @@ local exists = redis.call("EXISTS", hex);
 
 -- if not exist
 if exists == 0 then
-	return {0, false, false};
+	return {0, false, false, false};
 end
 
--- get last access time
-local access = redis.call("HMGET", hex, "access");
+-- get last access time and value to get its volume
+local object = redis.call("HMGET", hex,
+	"val",     -- 1
+	"access"); -- 2
 
 -- incr
 local rc = redis.call("HINCRBY", hex,
@@ -27,4 +29,4 @@ if expire ~= 0 then
 	redis.call("SETEX", hex .. ".ex", expire, 1);
 end
 
-return {1, rc, access};
+return {1, string.len(object[1]), rc, object[2]};

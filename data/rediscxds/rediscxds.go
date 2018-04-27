@@ -344,7 +344,7 @@ func (r *Redis) beforeGetHooks(key cipher.SHA256, incrBy int64) (err error) {
 	return
 }
 
-func (r *Redis) changeStatAfterGet(rc, incrBy int64, volume int) {
+func (r *Redis) changeStatAfter(rc, incrBy, volume int64) {
 	if incrBy == 0 {
 		return // no changes
 	}
@@ -364,6 +364,7 @@ func (r *Redis) changeStatAfterGet(rc, incrBy int64, volume int) {
 }
 
 func (r *Redis) get(
+	reply *object,
 	action radix.CmdAction,
 	key cipher.SHA256,
 	incrBy int64,
@@ -376,7 +377,6 @@ func (r *Redis) get(
 		return
 	}
 
-	var reply object
 	if err = r.pool.Do(action); err != nil {
 		r.CallAfterGetHooks(key, nil, err)
 		return
@@ -386,13 +386,14 @@ func (r *Redis) get(
 	if obj = reply.Object(); obj == nil {
 		err = data.ErrNotFound
 	}
-	r.changeStatAfterGet(obj.RC, incrBy, len(obj.Val))
+	r.changeStatAfter(obj.RC, incrBy, int64(len(obj.Val)))
 	r.CallAfterGetHooks(key, obj, err)
 	return
 }
 
 func (r *Redis) Get(key cipher.SHA256) (*Object, error) {
-	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
+	var reply object
+	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getLua, 3,
 		"expire",
 		"hex",
 		"now",
@@ -403,7 +404,8 @@ func (r *Redis) Get(key cipher.SHA256) (*Object, error) {
 }
 
 func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*Object, error) {
-	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 4,
+	var reply object
+	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getIncrLua, 4,
 		"expire",
 		"hex",
 		"incr",
@@ -416,7 +418,8 @@ func (r *Redis) GetIncr(key cipher.SHA256, incrBy int64) (*Object, error) {
 }
 
 func (r *Redis) GetNotTouch(key cipher.SHA256) (obj *Object, err error) {
-	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getNotTouchLua, 3,
+	var reply object
+	return r.get(&reply, radix.FlatCmd(&reply, "EVALSHA", r.getNotTouchLua, 3,
 		"expire",
 		"hex",
 		r.expire,
@@ -428,17 +431,70 @@ func (r *Redis) GetIncrNotTouch(
 	key cipher.SHA256, incrBy int64,
 ) (*Object, error) {
 
-	return r.get(radix.FlatCmd(&reply, "EVALSHA", r.getIncrNotTouchLua, 3,
-		"expire",
-		"hex",
-		"incr",
-		r.expire,
-		key.Hex(),
-		incrBy,
-	), key, incrBy)
+	var reply object
+	return r.get(&reply,
+		radix.FlatCmd(&reply, "EVALSHA", r.getIncrNotTouchLua, 3,
+			"expire",
+			"hex",
+			"incr",
+			r.expire,
+			key.Hex(),
+			incrBy,
+		), key, incrBy)
 }
 
-// ...
+func (r *Redis) beforeSetHooks(
+	key cipher.SHA256,
+	val []byte,
+	incrBy int64,
+) (
+	err error,
+) {
+
+	defer r.BeforeSetHooksClose()
+	for _, hook := range r.BeforeSetHooks(key) {
+		if _, err = hook(key, val, incrBy); err != nil { // ignore the meta (_)
+			return
+		}
+	}
+	return
+}
+
+func (r *Redis) set(
+	reply *[]int64,
+	action radix.CmdAction,
+	key cipher.SHA256,
+	val []byte,
+	incrBy int64,
+) (
+	obj *data.Object,
+	err error,
+) {
+
+	if err = r.beforeSetHooks(key, val, incrBy); err != nil {
+		return
+	}
+
+	if err = r.pool.Do(action); err != nil {
+		r.CallAfterSetHooks(key, nil, err)
+		return
+	}
+
+	if len(*reply) != 3 {
+		err = fmt.Errorf("invalid response length %d, want 3", len(*reply))
+		return
+	}
+
+	obj = new(data.Object)
+	obj.Val = val
+	obj.RC = (*reply)[0] // new RC
+	obj.Access = time.Unix(0, (*reply)[1])
+	obj.Create = time.Unix(0, (*reply)[2])
+
+	r.changeStatAfter(obj.RC, incrBy, int64(len(val)))
+	r.CallAfterSetHooks(key, obj, err)
+	return
+}
 
 func (r *Redis) Set(key cipher.SHA256, val []byte) (*Object, error) {
 	return r.SetIncr(key, val, 1)
@@ -452,8 +508,19 @@ func (r *Redis) SetIncr(
 	obj *Object, //       : object with new RC and previous last access time
 	err error, //         : error if any
 ) {
-	//
-	return
+	var reply []int64
+	return r.set(&reply, radix.FlatCmd(&reply, "EVALSHA", r.setIncrLua, 5,
+		"expire",
+		"hex",
+		"val",
+		"incr",
+		"now",
+		r.expire,
+		key.Hex(),
+		val,
+		incrBy,
+		time.Now().UnixNano(),
+	), key, val, incrBy)
 }
 
 func (r *Redis) SetNotTouch(
@@ -474,12 +541,62 @@ func (r *Redis) SetIncrNotTouch(
 	obj *Object, //       : object with new RC and previous last access time
 	err error, //         : error if any
 ) {
-	//
-	return
+	var reply []int64
+	return r.set(&reply,
+		radix.FlatCmd(&reply, "EVALSHA", r.setIncrNotTouchLua, 5,
+			"expire",
+			"hex",
+			"val",
+			"incr",
+			"now",
+			r.expire,
+			key.Hex(),
+			val,
+			incrBy,
+			time.Now().UnixNano(),
+		), key, val, incrBy)
 }
 
-func (r *Redis) SetRaw(key cipher.SHA256, obj *Object) (err error) {
+func (r *Redis) changeStatAfterSetRaw(rc, vol, prc, pvol int64) {
 	//
+}
+
+func (r *Redis) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
+
+	if err = r.beforeSetHooks(key, obj.Val, 0); err != nil {
+		return
+	}
+
+	var reply []int64 // prev_rc, prev_vols
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.setRawLua, 6,
+		"expire",
+		"hex",
+		"val",
+		"rc",
+		"access",
+		"create",
+		r.expire,
+		key.Hex(),
+		obj.Val,
+		obj.RC,
+		obj.Access.UnixNano(),
+		obj.Create.UnixNano(),
+	))
+
+	if err != nil {
+		r.CallAfterSetHooks(key, nil, err)
+		return
+	}
+
+	if len(reply) != 2 {
+		err = fmt.Errorf("invalid response length %d, want 2", len(reply))
+		return
+	}
+
+	// change stat after the SetRaw
+
+	r.changeStatAfter(obj.RC, incrBy, int64(len(val)))
+	r.CallAfterSetHooks(key, obj, err)
 	return
 }
 
