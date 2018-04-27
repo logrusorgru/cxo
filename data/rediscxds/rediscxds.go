@@ -29,6 +29,9 @@ type Redis struct {
 	expire     int64      // time.Duration
 	expireFunc ExpireFunc //
 
+	// scanning (iterate)
+	scanCount int
+
 	// amount and volume
 	statMutex sync.Mutex
 	amount    stat
@@ -68,6 +71,7 @@ func NewCXDS(
 	rc.pool = pool
 	rc.expire = int64(conf.Expire / time.Second)
 	rc.expireFunc = conf.ExpireFunc
+	rc.scanCount = conf.ScanCount
 
 	if err = rc.loadScripts(); err != nil {
 		pool.Close()
@@ -827,13 +831,34 @@ func (r *Redis) Del(key cipher.SHA256) (err error) {
 	return
 }
 
-func (r *Redis) Iterate(iterateFunc IterateObjectsFunc) (err error) {
-	//
-	return
-}
+// Iterate keys
+func (r *Redis) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 
-func (r *Redis) IterateDel(iterateFunc IterateObjectsDelFunc) (err error) {
-	//
+	var scan = radix.NewScanner(r.pool, radix.ScanOpts{
+		Command: "SCAN",
+		Pattern: "[0-9a-f]", // hexadecimal encoded sha256 hash
+		Count:   r.scanCount,
+	})
+
+	var (
+		hex string
+		key cipher.PubKey
+	)
+
+	for scan.Next(&key) {
+		if key, err = cipher.PubKeyFromHex(hex); err != nil {
+			panic(er) // unexpected
+		}
+		if err = iterateFunc(key); err != nil {
+			if err == data.ErrStopIteration {
+				break // brak the loop
+			}
+			scan.Close() // drop this error
+			return
+		}
+	}
+
+	err = scan.Close()
 	return
 }
 

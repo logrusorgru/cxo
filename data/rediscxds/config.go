@@ -13,6 +13,7 @@ const (
 	Size        int           = 10               // default pool size
 	MinExpire   time.Duration = 10 * time.Second // 10s
 	DialTimeout time.Duration = 10 * time.Second // 10s
+	ScanCount   int           = 100              // 100 per SCAN
 )
 
 // ExpireFunc has meaning only if expire callback enabled
@@ -53,6 +54,11 @@ type Config struct {
 	// Also, the Expire can't be less then MinExpire.
 	Expire     time.Duration
 	ExpireFunc ExpireFunc // expire callback (see ExpireFunc)
+
+	// ScanCount used inside Iterate method, see
+	// <https://redis.io/commands/scan#the-count-option>
+	// how it works
+	ScanCount int
 }
 
 // NewConfig retursn new Config
@@ -61,6 +67,7 @@ func NewConfig() (c *Config) {
 	c = new(Config)
 	c.Size = Size
 	c.DialTimeout = DialTimeout
+	c.ScanCount = ScanCount
 	return
 }
 
@@ -72,6 +79,11 @@ func (c *Config) Validate() (err error) {
 
 	if c.DialTimeout < 0 {
 		return fmt.Errorf("invalid DialTimeout: %s", c.DialTimeout)
+	}
+
+	if c.ScanCount <= 0 {
+		return fmt.Errorf("invalid ScanCount: %d, want > 0",
+			c.ScanCount)
 	}
 
 	if c.ExpireFunc == nil {
