@@ -95,11 +95,7 @@ func (h *HooksKeepper) DelBeforeTouchHook(
 //         hook(args)
 //     }
 //
-func (h *HooksKeepper) BeforeTouchHooks(
-	key cipher.SHA256,
-) (
-	hooks []BeforeTouchHookFunc,
-) {
+func (h *HooksKeepper) BeforeTouchHooks() (hooks []BeforeTouchHookFunc) {
 	h.beforeTouchMutex.Lock()
 	return h.beforeTouchHooks
 }
@@ -147,11 +143,7 @@ func (h *HooksKeepper) DelBeforeSetHook(beforeSetHookFunc BeforeSetHookFunc) {
 //         hook(args)
 //     }
 //
-func (h *HooksKeepper) BeforeSetHooks(
-	key cipher.SHA256,
-) (
-	hooks []BeforeSetHookFunc,
-) {
+func (h *HooksKeepper) BeforeSetHooks() (hooks []BeforeSetHookFunc) {
 	h.beforeSetMutex.Lock()
 	return h.beforeSetHooks
 }
@@ -199,11 +191,7 @@ func (h *HooksKeepper) DelBeforeGetHook(beforeGetHookFunc BeforeGetHookFunc) {
 //         hook(args)
 //     }
 //
-func (h *HooksKeepper) BeforeGetHooks(
-	key cipher.SHA256,
-) (
-	hooks []BeforeGetHookFunc,
-) {
+func (h *HooksKeepper) BeforeGetHooks() (hooks []BeforeGetHookFunc) {
 	h.beforeGetMutex.Lock()
 	return h.beforeGetHooks
 }
@@ -257,11 +245,7 @@ func (h *HooksKeepper) DelBeforeIncrHook(
 //         hook(args)
 //     }
 //
-func (h *HooksKeepper) BeforeIncrHooks(
-	key cipher.SHA256,
-) (
-	hooks []BeforeIncrHookFunc,
-) {
+func (h *HooksKeepper) BeforeIncrHooks() (hooks []BeforeIncrHookFunc) {
 	h.beforeIncrMutex.Lock()
 	return h.beforeIncrHooks
 }
@@ -309,11 +293,7 @@ func (h *HooksKeepper) DelBeforeDelHook(beforeDelHookFunc BeforeDelHookFunc) {
 //         hook(args)
 //     }
 //
-func (h *HooksKeepper) BeforeDelHooks(
-	key cipher.SHA256,
-) (
-	hooks []BeforeDelHookFunc,
-) {
+func (h *HooksKeepper) BeforeDelHooks() (hooks []BeforeDelHookFunc) {
 	h.beforeDelMutex.Lock()
 	return h.beforeDelHooks
 }

@@ -736,10 +736,40 @@ func (r *Redis) IncrNotTouch(
 	), key, incrBy)
 }
 
-// ...
+func (r *Redis) beforeDelHooks(key cipher.SHA256) (err error) {
+	defer r.BeforeDelHooksClose()
+	for _, hook := range r.BeforeDelHooks(key) {
+		//
+	}
+}
 
 func (r *Redis) Take(key cipher.SHA256) (obj *Object, err error) {
-	//
+
+	if err = r.beforeIncrHooks(key, incrBy); err != nil {
+		return
+	}
+
+	if err = r.pool.Do(action); err != nil {
+		r.CallAfterIncrHooks(key, rc, access, err) // key, 0, time.Time{}, err
+		return
+	}
+
+	// exists, vol, rc, access
+	if len(*reply) != 4 {
+		err = fmt.Errorf("invalid response length %d, want 4", len(*reply))
+		return
+	}
+
+	var (
+		exists = ((*reply)[0] == 1)
+		vol    = (*reply)[1]
+	)
+
+	rc = (*reply)[2]
+	access = time.Unix(0, (*reply)[2])
+
+	r.changeStatAfter(rc, incrBy, vol)
+	r.CallAfterIncrHooks(key, rc, access, err)
 	return
 }
 
