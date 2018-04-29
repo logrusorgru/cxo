@@ -13,33 +13,29 @@ local exists = redis.call("EXISTS", hex);
 
 -- if not exist
 if exists == 0 then
-	return {0, 0, 0, 0};
+	return {0, false, false, false};
 end
 
+-- incr by
+redis.call("HINCRBY", hex,
+	"rc", incr);
+
+-- get last access time and value to get its volume
 local object = redis.call("HMGET", hex,
 	"val",     -- 1
 	"rc",      -- 2
 	"access"); -- 3
 
--- new rc
-local rc  = object[2] + incr;
-
 -- volume (size) of value
-local vol = string.len(object[1]);
+local vol = tostring(string.len(object[1]));
 
--- incr and touch
-redis.call("HMSET", hex,
-	"rc", rc,       -- incr
+-- touch
+redis.call("HSET", hex,
 	"access", now); -- touch
 
 -- update expire (object can be removed between shutdown and start)
 if expire ~= "0" then
-	redis.call("SETEX", hex .. ".ex", expire, 1);
+	redis.call("SETEX", ":" .. hex, expire, 1);
 end
 
-return {
-	1,
-	vol,
-	rc,
-	tonumber(object[3])
-};
+return {1, vol, object[2], object[3]};
