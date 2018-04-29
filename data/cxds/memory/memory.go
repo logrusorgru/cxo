@@ -1,231 +1,388 @@
 package memory
 
 import (
-	"errors"
-	"fmt"
 	"sync"
+	"time"
 
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/skycoin/cxo/data"
 )
 
-var ErrEmptyValue = errors.New("empty value")
+type stat struct {
+	all, used int64
+}
 
 type Memory struct {
-	mx  sync.RWMutex
-	kvs map[cipher.SHA256]memoryObject
-
-	amountAll  int
-	amountUsed int
-
-	voluemAll  int
-	volumeUsed int
+	sync.Mutex
+	kvs            map[cipher.SHA256]*data.Object
+	amount, volume stat
+	clsoeo         sync.Once
 }
 
-// object stored in memory
-type memoryObject struct {
-	rc  uint32
-	val []byte
-}
-
-// NewCXDS creates CXDS-databse in
+// NewMemory creates CXDS-databse in
 // memory. The DB based on golang map
-func NewCXDS() data.CXDS {
-	return &Memory{kvs: make(map[cipher.SHA256]memoryObject)}
+func NewMemory() data.CXDS {
+	return &Memory{kvs: make(map[cipher.SHA256]*data.Object)}
 }
 
-func (m *Memory) av(rc, nrc uint32, vol int) {
+func copyObject(o *data.Object) (obj *data.Object) {
+	obj = new(data.Object)
+	obj.Val = make([]byte, len(o.Val))
+	copy(obj.Val, o.Val)
+	obj.RC = o.RC
+	obj.Access = o.Access
+	obj.Create = o.Create
+	return
+}
 
-	if rc == 0 { // was dead
-		if nrc > 0 { // an be resurrected
-			m.amountUsed++
-			m.volumeUsed += vol
+func (m *Memory) changeStatAfter(created bool, rc, incrBy, volume int64) {
+	// under lock
+
+	// set methods
+	if created == true {
+		m.amount.all++
+		m.volume.all += volume
+		if rc > 0 {
+			m.amount.used++
+			m.volume.used += volume
 		}
-		return // else -> as is
-	}
-
-	// rc > 0 (was alive)
-
-	if nrc == 0 { // an be killed
-		m.amountUsed--
-		m.volumeUsed -= vol
-	}
-
-}
-
-func (m *Memory) incr(
-	key cipher.SHA256,
-	mo memoryObject,
-	rc uint32,
-	inc int,
-) (
-	nrc uint32,
-) {
-
-	switch {
-	case inc == 0:
-		nrc = rc // no changes
 		return
-	case inc < 0:
-		inc = -inc // change the sign
+	}
 
-		if uinc := uint32(inc); uinc >= rc {
-			nrc = 0
-		} else {
-			nrc = rc - uinc
+	if incrBy == 0 {
+		return // no changes
+	}
+	if rc <= 0 {
+		if rc-incrBy > 0 {
+			m.amount.used--                // } one of objects,
+			m.volume.used -= int64(volume) // }  turns to be not used
 		}
-	case inc > 0:
-		nrc = rc + uint32(inc)
+		return
 	}
-
-	mo.rc = nrc
-	m.kvs[key] = mo
-
-	m.av(rc, nrc, len(mo.val))
+	// rc > 0
+	if rc-incrBy <= 0 {
+		m.amount.used++                // } reborn
+		m.volume.used += int64(volume) // }
+	}
 	return
-
 }
 
-// Get value and change rc
-func (m *Memory) Get(
-	key cipher.SHA256,
-	inc int,
+func (m *Memory) Hooks() (hooks data.Hooks) {
+	return // nil
+}
+
+func (m *Memory) Touch(key cipher.SHA256) (access time.Time, err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		err = data.ErrNotFound
+		return
+	}
+	access = obj.Access
+	obj.Access = time.Now()
+	return
+}
+
+func (m *Memory) Get(key cipher.SHA256) (*data.Object, error) {
+	return m.GetIncr(key, 0)
+}
+
+func (m *Memory) GetIncr(
+	key cipher.SHA256, incrBy int64,
+) (*data.Object, error) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		return nil, data.ErrNotFound
+	}
+	obj.RC += incrBy
+
+	var cp = copyObject(obj)
+	obj.Access = time.Now()
+
+	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+	return cp, nil
+}
+
+func (m *Memory) GetNotTouch(key cipher.SHA256) (*data.Object, error) {
+	return m.GetIncrNotTouch(key, 0)
+}
+
+//
+func (m *Memory) GetIncrNotTouch(
+	key cipher.SHA256, incrBy int64,
+) (*data.Object, error) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		return nil, data.ErrNotFound
+	}
+
+	obj.RC += incrBy
+	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+	return copyObject(obj), nil
+}
+
+// Set is SetIncr(key, val, 1)
+func (m *Memory) Set(key cipher.SHA256, val []byte) (*data.Object, error) {
+	return m.SetIncr(key, val, 1)
+}
+
+// SetIncr ... blah
+func (m *Memory) SetIncr(
+	key cipher.SHA256, // : hash of the object
+	val []byte, //        : encoded object
+	incrBy int64, //      : inc- or decrement RC by this value
 ) (
-	val []byte,
-	rc uint32,
-	err error,
+	*data.Object, //      : object with new RC and previous last access time
+	error, //             : error if any
 ) {
+	m.Lock()
+	defer m.Unlock()
 
-	if inc == 0 { // read only
-		m.mx.RLock()
-		defer m.mx.RUnlock()
-	} else { // read-write
-		m.mx.Lock()
-		defer m.mx.Unlock()
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		obj = new(data.Object)
+		m.kvs[key] = obj
 	}
 
-	if mo, ok := m.kvs[key]; ok {
-		val, rc = mo.val, mo.rc
-		rc = m.incr(key, mo, rc, inc)
-		return
-	}
-	err = data.ErrNotFound
-	return
-}
+	obj.Val = val
+	obj.RC += incrBy
 
-// Set value and change rc
-func (m *Memory) Set(
-	key cipher.SHA256,
-	val []byte,
-	inc int,
-) (
-	rc uint32,
-	err error,
-) {
-
-	if inc <= 0 {
-		panicf("invalid inc argument is Set: %d", inc)
-	}
-
-	if len(val) == 0 {
-		err = ErrEmptyValue
-		return
-	}
-
-	m.mx.Lock()
-	defer m.mx.Unlock()
-
-	if mo, ok := m.kvs[key]; ok {
-		rc = m.incr(key, mo, mo.rc, inc)
-		return
-	}
-
-	// created
-
-	m.amountAll++
-	m.voluemAll += len(val)
-
-	m.amountUsed++
-	m.volumeUsed += len(val)
-
-	rc = uint32(inc)
-	m.kvs[key] = memoryObject{rc, val}
-
-	return
-}
-
-// Inc changes rc
-func (m *Memory) Inc(
-	key cipher.SHA256,
-	inc int,
-) (
-	rc uint32,
-	err error,
-) {
-
-	if inc == 0 { // presence check
-		m.mx.RLock()
-		defer m.mx.RUnlock()
-	} else { // changes
-		m.mx.Lock()
-		defer m.mx.Unlock()
-	}
-
-	if mo, ok := m.kvs[key]; ok {
-		rc = m.incr(key, mo, mo.rc, inc)
-		return
-	}
-
-	err = data.ErrNotFound
-	return
-}
-
-// Del deletes value unconditionally
-func (m *Memory) Del(key cipher.SHA256) (_ error) {
-	m.mx.Lock()
-	defer m.mx.Unlock()
-
-	var mo, ok = m.kvs[key]
+	var cp = copyObject(obj)
+	obj.Access = time.Now()
 
 	if ok == false {
-		return // not found
+		obj.Create = obj.Access
+
+		cp.Access = obj.Access
+		cp.Create = obj.Access
 	}
 
-	if mo.rc > 0 {
-		m.amountUsed--
-		m.volumeUsed -= len(mo.val)
+	cp.Val, obj.Val = obj.Val, cp.Val // swap (copy in DB, argument in reply)
+
+	m.changeStatAfter(false, obj.RC, incrBy, int64(len(val)))
+	return cp, nil
+}
+
+// SetNotTouch ... balh
+func (m *Memory) SetNotTouch(
+	key cipher.SHA256, // : hash of the object
+	val []byte, //        : encoded object
+) (
+	*data.Object, //      : object with new RC and previous last access time
+	error, //             : error if any
+) {
+	return m.SetIncrNotTouch(key, val, 1)
+}
+
+// SetIncrNotTouch ... blah
+func (m *Memory) SetIncrNotTouch(
+	key cipher.SHA256, // : hash of the object
+	val []byte, //        : encoded object
+	incrBy int64, //      : inc- or decrement RC by this value
+) (
+	*data.Object, //      : object with new RC and previous last access time
+	error, //             : error if any
+) {
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		obj = new(data.Object)
+		obj.Val = val
+		obj.RC = incrBy
+		obj.Access = time.Now() // access time can't be less then create time
+		obj.Create = obj.Access
+		m.kvs[key] = obj
+		m.changeStatAfter(true, obj.RC, incrBy, int64(len(val)))
+	} else {
+		obj.Val = val
+		obj.RC += incrBy
+		m.changeStatAfter(false, obj.RC, incrBy, int64(len(val)))
 	}
 
-	m.amountAll--
-	m.voluemAll -= len(mo.val)
+	var cp = copyObject(obj)
+	cp.Val, obj.Val = obj.Val, cp.Val // swap (copy in DB, argument in reply)
+	return cp, nil
+}
 
+// call under lock
+func (m *Memory) changeStatAfterSetRaw(
+	overwritten bool, // : is overwritten
+	pvol, prc int64, //  : previous
+	vol, rc int64, //    : new
+) {
+
+	// regards to collisons or use of blank value for some developer reasons
+
+	if overwritten == true {
+		m.volume.all += (vol - pvol) // diff
+		if prc <= 0 {                // was dead
+			if rc > 0 { // reborn
+				m.amount.used++
+				m.volume.used += vol
+			}
+			// else -> still dead (do nothing)
+		} else { // was alive
+			if rc <= 0 { // kill
+				m.amount.used--
+				m.volume.used -= pvol
+			} else { // still alive
+				m.volume.used += (vol - pvol) // diff
+			}
+		}
+	} else { // new object created
+		m.volume.all += vol
+		m.amount.all++
+		if rc > 0 { // alive object
+			m.volume.used += vol
+			m.amount.used++
+		}
+	}
+
+}
+
+// SetRaw .. .blah
+func (m *Memory) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	var o, ok = m.kvs[key]
+	if ok == false {
+		m.kvs[key] = copyObject(obj)
+		m.changeStatAfterSetRaw(false, 0, 0, int64(len(obj.Val)), obj.RC)
+		return
+	}
+	m.kvs[key] = copyObject(obj)
+	m.changeStatAfterSetRaw(true, int64(len(o.Val)), o.RC,
+		int64(len(obj.Val)), obj.RC)
+	return
+}
+
+// Incr .. blah
+func (m *Memory) Incr(
+	key cipher.SHA256, // : hash of the object
+	incrBy int64, //      : inr- or decrement by
+) (
+	rc int64, //          : new RC
+	access time.Time, //  : previous last access time
+	err error, //         : error if any
+) {
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		err = data.ErrNotFound
+		return
+	}
+
+	obj.RC += incrBy
+	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+
+	rc = obj.RC
+	access = obj.Access
+	obj.Access = time.Now()
+	return
+}
+
+// IncrNotTouch ... blah
+func (m *Memory) IncrNotTouch(
+	key cipher.SHA256, // : hash of the object
+	incrBy int64, //      : inr- or decrement by
+) (
+	rc int64, //          : new RC
+	access time.Time, //  : previous last access time
+	err error, //         : error if any
+) {
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		err = data.ErrNotFound
+		return
+	}
+
+	obj.RC += incrBy
+	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+
+	rc = obj.RC
+	access = obj.Access
+	return
+}
+
+func (m *Memory) changeStatAfterDel(rc, vol int64) {
+	m.amount.all--
+	m.volume.all -= vol
+
+	if rc > 0 {
+		m.amount.used--
+		m.volume.used -= vol
+	}
+}
+
+// Take gets value from DB and deletes. Short words, the Take is
+// the same as Get and Del.
+func (m *Memory) Take(key cipher.SHA256) (obj *data.Object, err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	var ok bool
+	if obj, ok = m.kvs[key]; ok == false {
+		err = data.ErrNotFound
+		return
+	}
+	m.changeStatAfterDel(obj.RC, int64(len(obj.Val)))
+	return
+}
+
+// Del value by key. If value doesn't exists, then
+// the Del retusn data.ErrNotFound
+func (m *Memory) Del(key cipher.SHA256) (err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	var obj, ok = m.kvs[key]
+	if ok == false {
+		return data.ErrNotFound
+	}
+	delete(m.kvs, key)
+	m.changeStatAfterDel(obj.RC, int64(len(obj.Val)))
 	return
 }
 
 func (m *Memory) unlockedIterate(
-	k cipher.SHA256,
-	rc uint32,
-	v []byte,
-	iterateFunc data.IterateObjectsFunc,
+	key cipher.SHA256,
+	iterateFunc data.IterateKeysFunc,
 ) (
 	err error,
 ) {
+	m.Unlock()
+	defer m.Lock()
 
-	m.mx.Unlock()
-	defer m.mx.Lock()
-
-	return iterateFunc(k, rc, v)
+	return iterateFunc(key)
 }
 
-// Iterate all keys
-func (m *Memory) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
+// Iterate over all keys.
+func (m *Memory) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 
-	m.mx.Lock()
-	defer m.mx.Unlock()
+	m.Lock()
+	defer m.Unlock()
 
-	for k, mo := range m.kvs {
-		if err = m.unlockedIterate(k, mo.rc, mo.val, iterateFunc); err != nil {
+	for key := range m.kvs {
+		if err = m.unlockedIterate(key, iterateFunc); err != nil {
 			if err == data.ErrStopIteration {
 				err = nil
 			}
@@ -236,88 +393,40 @@ func (m *Memory) Iterate(iterateFunc data.IterateObjectsFunc) (err error) {
 	return
 }
 
-func (m *Memory) unlockedIterateDel(
-	k cipher.SHA256,
-	rc uint32,
-	v []byte,
-	iterateFunc data.IterateObjectsDelFunc,
-) (
-	del bool,
-	err error,
-) {
+// Amount of objects
+func (m *Memory) Amount() (all, used int64) {
+	m.Lock()
+	defer m.Unlock()
 
-	m.mx.Unlock()
-	defer m.mx.Lock()
-
-	return iterateFunc(k, rc, v)
+	return m.amount.all, m.amount.used
 }
 
-// IterateDel all keys deleting
-func (m *Memory) IterateDel(
-	iterateFunc data.IterateObjectsDelFunc,
-) (
-	err error,
-) {
+// Volume of objects. Payload only.
+func (m *Memory) Volume() (all, used int64) {
+	m.Lock()
+	defer m.Unlock()
 
-	m.mx.Lock()
-	defer m.mx.Unlock()
-
-	var del bool
-
-	for k, mo := range m.kvs {
-		del, err = m.unlockedIterateDel(k, mo.rc, mo.val, iterateFunc)
-		if err != nil {
-			if err == data.ErrStopIteration {
-				err = nil
-			}
-			return
-		}
-		if del == true {
-			delete(m.kvs, k)
-			if mo.rc > 0 {
-				m.amountUsed--
-				m.volumeUsed -= len(mo.val)
-			}
-			m.amountAll--
-			m.voluemAll -= len(mo.val)
-		}
-	}
-
-	return
+	return m.volume.all, m.volume.used
 }
 
-// amount of objects
-func (m *Memory) Amount() (all, used int) {
-	m.mx.RLock()
-	defer m.mx.RUnlock()
-
-	return m.amountAll, m.amountUsed
-}
-
-// Volume of objects
-func (m *Memory) Volume() (all, used int) {
-	m.mx.RLock()
-	defer m.mx.RUnlock()
-
-	return m.voluemAll, m.volumeUsed
-}
-
-// IsSafeClosed allways returns true, because
-// the DB placed in memory and destroyed after
-// closing.
+// IsSafeClosed returns true allways.
 func (*Memory) IsSafeClosed() bool {
 	return true
 }
 
-// Close DB
-func (m *Memory) Close() (_ error) {
-	m.mx.Lock()
-	defer m.mx.Unlock()
-
-	m.kvs = nil // clear
-	return
+// Map returns underlying map. Use with Lock/Unlock to
+// protect DB against concurent use
+func (m *Memory) Map() map[cipher.SHA256]*data.Object {
+	return m.kvs
 }
 
-func panicf(format string, args ...interface{}) {
-	panic(fmt.Sprintf(format, args...))
+// Close DB. After closing DB can't be used.
+func (m *Memory) Close() (_ error) {
+	m.Lock()
+	defer m.Unlock()
+
+	m.clsoeo.Do(func() {
+		m.kvs = nil // clear
+	})
+	return
 }

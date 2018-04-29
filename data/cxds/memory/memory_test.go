@@ -3,51 +3,46 @@ package memory
 import (
 	"testing"
 
-	//"github.com/skycoin/cxo/data"
-	"github.com/skycoin/cxo/data/tests"
+	"github.com/skycoin/cxo/data"
+	"github.com/skycoin/cxo/data/tests/cxds"
 )
 
-func testShouldNotPanic(t *testing.T) {
-	if pc := recover(); pc != nil {
-		t.Error("unexpected panic:", pc)
-	}
+func runTestCase(t *testing.T, testCase func(t *testing.T, ds data.CXDS)) {
+	testCase(t, NewMemory())
 }
 
-func TestNewCXDS(t *testing.T) {
-	// NewCXDS() (ds data.CXDS, err error)
+func TestMemory_Hooks(t *testing.T) { runTestCase(t, cxds.Hooks) }
 
-	ds := NewCXDS()
-	defer ds.Close()
+func TestMemory_Touch(t *testing.T) { runTestCase(t, cxds.Touch) }
+
+func TestMemory_Get(t *testing.T)         { runTestCase(t, cxds.Get) }
+func TestMemory_GetIncr(t *testing.T)     { runTestCase(t, cxds.GetIncr) }
+func TestMemory_GetNotTouch(t *testing.T) { runTestCase(t, cxds.GetNotTouch) }
+func TestMemory_GetIncrNotTouch(t *testing.T) {
+	runTestCase(t, cxds.GetIncrNotTouch)
 }
 
-func TestCXDS_Get(t *testing.T) {
-	// Get(key cipher.SHA256) (val []byte, rc uint32, err error)
+func TestMemory_Set(t *testing.T)         { runTestCase(t, cxds.Set) }
+func TestMemory_SetIncr(t *testing.T)     { runTestCase(t, cxds.SetIncr) }
+func TestMemory_SetNotTouch(t *testing.T) { runTestCase(t, cxds.SetNotTouch) }
+func TestMemory_SetIncrNotTouch(t *testing.T) {
+	runTestCase(t, cxds.SetIncrNotTouch)
+}
+func TestMemory_SetRaw(t *testing.T) { runTestCase(t, cxds.SetRaw) }
 
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSGet(t, NewCXDS())
-	})
+func TestMemory_Incr(t *testing.T)         { runTestCase(t, cxds.Incr) }
+func TestMemory_IncrNotTouch(t *testing.T) { runTestCase(t, cxds.IncrNotTouch) }
+
+func TestMemory_Take(t *testing.T) { runTestCase(t, cxds.Take) }
+func TestMemory_Del(t *testing.T)  { runTestCase(t, cxds.Del) }
+
+func TestMemory_Iterate(t *testing.T) { runTestCase(t, cxds.Iterate) }
+
+func TestMemory_Amount(t *testing.T) { runTestCase(t, cxds.Amount) }
+func TestMemory_Volume(t *testing.T) { runTestCase(t, cxds.Volume) }
+
+func TestMemory_IsSafeClosed(t *testing.T) {
+	cxds.IsSafeClosed(t, NewMemory(), nil)
 }
 
-func TestCXDS_Set(t *testing.T) {
-	// Set(key cipher.SHA256, val []byte) (rc uint32, err error)
-
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSSet(t, NewCXDS())
-	})
-}
-
-func TestCXDS_Inc(t *testing.T) {
-	// Inc(key cipher.SHA256) (rc uint32, err error)
-
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSInc(t, NewCXDS())
-	})
-}
-
-func TestCXDS_Close(t *testing.T) {
-	// Close() (err error)
-
-	t.Run("memory", func(t *testing.T) {
-		tests.CXDSClose(t, NewCXDS())
-	})
-}
+func TestMemory_Close(t *testing.T) { runTestCase(t, cxds.Close) }
