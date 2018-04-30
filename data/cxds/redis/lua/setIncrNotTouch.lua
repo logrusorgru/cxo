@@ -45,7 +45,7 @@ else
 	created = 1;
 
 	rc     = incr;
-	access = now;
+	access = "0";  -- last access time is the beginning of unix epoch
 	create = now;
 
 	-- create new

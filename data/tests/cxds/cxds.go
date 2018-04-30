@@ -140,7 +140,8 @@ func Touch(t *testing.T, ds data.CXDS) {
 			return
 		}
 
-		if access.Equal(obj.Access) == false {
+		// last access time is createing time
+		if access.Equal(obj.Create) == false {
 			t.Errorf("unexpected last access time: %s, want %s",
 				obj.Access, access)
 			return
@@ -196,14 +197,18 @@ func Get(t *testing.T, ds data.CXDS) {
 			t.Error(err)
 			return
 		}
+		// compare
+		obj.Access = obj.Create // (to compare easy way)
 		if areObjectsEqual(obj, gobj) == false {
 			t.Error("object has been changed")
 		}
+		// touch
 		if gobj, err = ds.Get(key); err != nil {
 			t.Error(err)
 			return
 		}
-		if gobj.Access.After(obj.Access) == false {
+		// updated access time
+		if gobj.Access.After(obj.Create) == false {
 			t.Error("access time not updated")
 		}
 		statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
@@ -248,10 +253,8 @@ func GetIncr(t *testing.T, ds data.CXDS) {
 				t.Error(err)
 				return
 			}
-			if i > 0 {
-				if gobj.Access.After(obj.Access) == false {
-					t.Error("access time not updated")
-				}
+			if gobj.Access.After(obj.Access) == false {
+				t.Error("access time not updated")
 			}
 			obj.Access = gobj.Access // for next loop
 			if gobj.RC != rc {
@@ -296,6 +299,8 @@ func GetNotTouch(t *testing.T, ds data.CXDS) {
 			t.Error(err)
 			return
 		}
+		// compare
+		obj.Access = obj.Create // to compare easy way
 		if areObjectsEqual(obj, gobj) == false {
 			t.Error("object has been changed")
 		}
@@ -348,10 +353,8 @@ func GetIncrNotTouch(t *testing.T, ds data.CXDS) {
 				t.Error(err)
 				return
 			}
-			if i > 0 {
-				if gobj.Access.Equal(obj.Access) == false {
-					t.Error("access time updated")
-				}
+			if gobj.Access.Equal(obj.Create) == false {
+				t.Error("access time updated")
 			}
 			if gobj.RC != rc {
 				t.Errorf("wrong RC %d, want %d", gobj.RC, rc)
@@ -395,10 +398,10 @@ func Set(t *testing.T, ds data.CXDS) {
 		if obj.Create.After(tp) == false {
 			t.Error("invalid create time")
 		}
-		if obj.Access.Equal(obj.Create) == false {
-			t.Error("invalid access time")
+		if obj.Access.UnixNano() != 0 {
+			t.Error("invalid access time (shold be the begining of unix epoch)")
 		}
-		create = obj.Access // keep for next test
+		create = obj.Create // keep for next test
 		statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
 		dsShouldHave(t, ds, key)
 	})
@@ -475,26 +478,29 @@ func SetIncr(t *testing.T, ds data.CXDS) {
 			t.Errorf("invalid RC %d, want %d", obj.RC, rc)
 		}
 
-		if last.IsZero() == true {
+		if i == 0 {
 			if obj.Create.After(tp) == false {
-				t.Error("invalid create time")
+				t.Error("invalid creating time")
 			}
-			if obj.Access.Equal(obj.Create) == false {
+			create = obj.Create
+			if obj.Access.UnixNano() != 0 {
 				t.Error("invalid access time")
 			}
-			create, last = obj.Create, obj.Access
+			last = obj.Access
 		} else {
 			if obj.Create.Equal(create) == false {
 				t.Error("invalid create time")
 			}
 			if i == 1 {
-				if obj.Access.Equal(last) == false {
+				if obj.Access.Equal(obj.Create) == false {
 					t.Error("invalid access time")
 				}
-			} else if obj.Access.After(last) == false {
-				t.Error("invalid access time")
+				last = obj.Access
+			} else {
+				if obj.Access.After(last) == false {
+					t.Error("invalid access time")
+				}
 			}
-			last = obj.Access
 		}
 
 		if rc > 0 {
@@ -537,10 +543,10 @@ func SetNotTouch(t *testing.T, ds data.CXDS) {
 		if obj.Create.After(tp) == false {
 			t.Error("invalid create time")
 		}
-		if obj.Access.Equal(obj.Create) == false {
+		if obj.Access.UnixNano() != 0 {
 			t.Error("invalid access time")
 		}
-		create = obj.Access // keep for next test
+		create = obj.Create // keep for next test
 		statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
 		dsShouldHave(t, ds, key)
 	})
@@ -616,13 +622,16 @@ func SetIncrNotTouch(t *testing.T, ds data.CXDS) {
 				t.Error("invalid create time")
 			}
 			create = obj.Create
+			if obj.Access.UnixNano() != 0 {
+				t.Error("invalid access time")
+			}
 		} else {
 			if obj.Create.Equal(create) == false {
 				t.Error("invalid create time")
 			}
-		}
-		if obj.Access.Equal(obj.Create) == false {
-			t.Error("invalid access time")
+			if obj.Access.Equal(create) == false {
+				t.Error("invalid access time")
+			}
 		}
 		if rc > 0 {
 			statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
@@ -903,7 +912,7 @@ func IncrNotTouch(t *testing.T, ds data.CXDS) {
 		if rc != 2 {
 			t.Error("wrong rc", rc)
 		}
-		if access.Equal(obj.Access) == false {
+		if access.Equal(obj.Create) == false {
 			t.Error("wrong last access (touched)")
 		}
 		statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
@@ -924,7 +933,7 @@ func IncrNotTouch(t *testing.T, ds data.CXDS) {
 		if rc != 2 {
 			t.Error("wrong rc", rc)
 		}
-		if access.Equal(obj.Access) == false {
+		if access.Equal(obj.Create) == false {
 			t.Error("wrong last access (touched)")
 		}
 		statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
@@ -945,7 +954,7 @@ func IncrNotTouch(t *testing.T, ds data.CXDS) {
 		if rc != 2-100 {
 			t.Error("wrong rc", rc)
 		}
-		if access.Equal(obj.Access) == false {
+		if access.Equal(obj.Create) == false {
 			t.Error("wrong last access (touched)")
 		}
 		statShouldBe(t, ds, stat{1, 0}, stat{vol, 0})
@@ -973,6 +982,7 @@ func Take(t *testing.T, ds data.CXDS) {
 		t.Error(err)
 		return
 	}
+	obj.Access = obj.Create
 
 	t.Run("take alive", func(t *testing.T) {
 		var tobj, err = ds.Take(key)
@@ -990,6 +1000,7 @@ func Take(t *testing.T, ds data.CXDS) {
 		t.Error(err)
 		return
 	}
+	obj.Access = obj.Create
 
 	t.Run("take dead", func(t *testing.T) {
 		var tobj, err = ds.Take(key)

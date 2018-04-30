@@ -19,27 +19,65 @@ type IterateKeysFunc func(key cipher.SHA256) (err error)
 
 // A CXDS is interface of CX data store. The CXDS is
 // key-value store with references counters. There is
-// data/cxds implementation that contains boltdb based
+// data/cxds implementations that contains boltdb based
 // and in-memory (golang map based) implementations of
 // the CXDS. The CXDS returns ErrNotFound from this
-// package if any value has not been found. The
-// references counters is number of objects that points
-// to an object. E.g. schema of the CXDS is
+// package if any value is not found. The references
+// counter (RC) is number of objects that points to an
+// object. The RC iz zero or above by design, but it's
+// not restricted to use negative RC for some developer
+// reasons. The CXO can't make an RC negative. E.g. a
+// developer for his own needs may make it negative and
+// it's ok for the CXDS.
 //
-//     key -> {val, rc, last_access_time, created_at_time}
+// Schema of the CXDS is
+//
+//     key -> {val, rc, access_time, created_at_time}
 //
 // The CXDS keeps elements with rc == 0. End-user should
 // track size of the DB and remove objects that doesn't
 // used to free up space.
 //
-// Object in the CXDS can be strored by some order, but
-// but the oreder can be chaotic. The basic requirement
-// is ability to continue an iteration after pause.
+// Order of obejcts is not defined.
+//
+// Access and create times.
+//
+// The access time is time of last access. Methods,
+// that returns Object or access time, returns previous
+// access time (because last access time is 'now' and
+// no one need it). Every method (except *NotTouch)
+// updates the access time in DB returning previous
+// one. The *NotTouch methods doesn't update the access
+// time, but the SetNotTouch and SetIncrNotTouch methos
+// set the access time to now creating object (e.g. if
+// object doesn't exist before the Set* call). Thus,
+// real access time in DB is equal to create time or
+// later. But the Set* methos returns previous access
+// time that is the begining of Unix Epoch (e.g.
+// accessTime.UnixNano() == 0) if object created.
+//
+// Also, ther is SetRaw method that puts value as it.
+// And this way, if access time or crate time is zero,
+// then it zero. No changes.
+//
+// RC in response.
+//
+// All methods returns new RC everytime. E.g. *Incr*
+// methods used to change the RC of an obejct in DB.
+// For example the GetIncr changes the RC and returns
+// object with new (changed) RC.
+//
+// Not touch.
+//
+// The *NotTouch methods doesn't update last access
+// time. Keep in mind that the SetNotTouch method
+// sets access time to now if object doesn't exist.
 type CXDS interface {
 
 	// Hooks retursn accessor to hooks of the CXDS.
 	// The Hooks retuns nil if DB doesn't support
-	// hooks.
+	// hooks. The Hooks are experimatal and not
+	// tested.
 	Hooks() (hooks Hooks)
 
 	//
@@ -52,18 +90,17 @@ type CXDS interface {
 	Touch(key cipher.SHA256) (access time.Time, err error)
 
 	//
-	// Get methods.
+	// Get* methods.
 	//
 	//
-	// Get methods used to obtain an object. If object dosn't
-	// exist, then Get methods return ErrNotFound.
+	// Get* methods used to obtain an object. If object dosn't
+	// exist, then the Get* methods return ErrNotFound.
 	//
 	// Get Object by key updating its last access time.
-	// Result contains previous last access time.
 	Get(key cipher.SHA256) (obj *Object, err error)
 	// GetIncr is the same as the Get but it changes
-	// references counter using provided argument.
-	// Result contains new RC values.
+	// RC using provided argument. The argument can
+	// be zero, actually.
 	GetIncr(key cipher.SHA256, incrBy int64) (obj *Object, err error)
 	// GetNotTouch is the same as the Get but it
 	// doesn't update last access time.
@@ -73,13 +110,14 @@ type CXDS interface {
 	GetIncrNotTouch(key cipher.SHA256, incrBy int64) (obj *Object, err error)
 
 	//
-	// Set methods.
+	// Set* methods.
 	//
 	//
-	// Set methods used to create new object. The Set method
-	// increments RC by 1 (except SetIncr and SetIncrNotTouch).
-	// Result allways contains new RC and previous last access
-	// time.
+	// Set* methods used to create new object. If obejct is
+	// alredy exists, then Set* method updates access time,
+	// and increments RC. The Set and SetNotTouch methods
+	// increments the RC by +1. The SetIcnr and
+	// SetIncrNotTouch methods use provided value.
 	//
 	// Set creates new object or updates existsing. The Set
 	// method equal to the SetIncr method with `incrBy = 1`.
@@ -115,7 +153,7 @@ type CXDS interface {
 		obj *Object, //       : object with new RC and previous last access time
 		err error, //         : error if any
 	)
-	// SetRaw set given object as is. If object alreday exists,
+	// SetRaw sets given object as is. If object alreday exists,
 	// then the SetRaw method overwrites existing one.
 	SetRaw(key cipher.SHA256, obj *Object) (err error)
 

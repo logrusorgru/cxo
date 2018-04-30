@@ -46,7 +46,7 @@ else
 	created = 1;
 
 	rc     = incr;
-	access = now;
+	access = "0";    -- last access is zero
 	create = now;
 
 	-- create new
