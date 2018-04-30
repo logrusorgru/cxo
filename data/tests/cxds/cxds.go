@@ -54,9 +54,6 @@ func statShouldBe(t *testing.T, ds data.CXDS, amount, volume stat) {
 }
 
 func mapFromSlice(keys []cipher.SHA256) (m map[cipher.SHA256]bool) {
-	if len(keys) == 0 {
-		return
-	}
 	m = make(map[cipher.SHA256]bool, len(keys))
 	for _, k := range keys {
 		m[k] = false

@@ -36,6 +36,8 @@ func copyObject(o *data.Object) (obj *data.Object) {
 	return
 }
 
+func vol(val []byte) int64 { return int64(len(val)) }
+
 func (m *Memory) changeStatAfter(created bool, rc, incrBy, volume int64) {
 	// under lock
 
@@ -55,15 +57,15 @@ func (m *Memory) changeStatAfter(created bool, rc, incrBy, volume int64) {
 	}
 	if rc <= 0 {
 		if rc-incrBy > 0 {
-			m.amount.used--                // } one of objects,
-			m.volume.used -= int64(volume) // }  turns to be not used
+			m.amount.used--         // } one of objects,
+			m.volume.used -= volume // }  turns to be not used
 		}
 		return
 	}
 	// rc > 0
 	if rc-incrBy <= 0 {
-		m.amount.used++                // } reborn
-		m.volume.used += int64(volume) // }
+		m.amount.used++         // } reborn
+		m.volume.used += volume // }
 	}
 	return
 }
@@ -106,7 +108,7 @@ func (m *Memory) GetIncr(
 	var cp = copyObject(obj)
 	obj.Access = time.Now()
 
-	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+	m.changeStatAfter(false, obj.RC, incrBy, vol(obj.Val))
 	return cp, nil
 }
 
@@ -128,7 +130,7 @@ func (m *Memory) GetIncrNotTouch(
 	}
 
 	obj.RC += incrBy
-	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+	m.changeStatAfter(false, obj.RC, incrBy, vol(obj.Val))
 	return copyObject(obj), nil
 }
 
@@ -162,15 +164,15 @@ func (m *Memory) SetIncr(
 	obj.Access = time.Now()
 
 	if ok == false {
-		obj.Create = obj.Access
+		obj.Create = obj.Access // now
 
-		cp.Access = obj.Access
-		cp.Create = obj.Access
+		cp.Access = time.Unix(0, 0) // zero
+		cp.Create = obj.Access      // now
 	}
 
 	cp.Val, obj.Val = obj.Val, cp.Val // swap (copy in DB, argument in reply)
 
-	m.changeStatAfter(false, obj.RC, incrBy, int64(len(val)))
+	m.changeStatAfter(!ok, obj.RC, incrBy, vol(val))
 	return cp, nil
 }
 
@@ -200,20 +202,27 @@ func (m *Memory) SetIncrNotTouch(
 	var obj, ok = m.kvs[key]
 	if ok == false {
 		obj = new(data.Object)
-		obj.Val = val
-		obj.RC = incrBy
-		obj.Access = time.Now() // access time can't be less then create time
-		obj.Create = obj.Access
 		m.kvs[key] = obj
-		m.changeStatAfter(true, obj.RC, incrBy, int64(len(val)))
-	} else {
-		obj.Val = val
-		obj.RC += incrBy
-		m.changeStatAfter(false, obj.RC, incrBy, int64(len(val)))
 	}
 
+	obj.Val = val
+	obj.RC += incrBy
+
 	var cp = copyObject(obj)
+
+	if ok == false {
+		var now = time.Now()
+
+		obj.Access = now
+		obj.Create = now
+
+		cp.Access = time.Unix(0, 0)
+		cp.Create = now
+	}
+
 	cp.Val, obj.Val = obj.Val, cp.Val // swap (copy in DB, argument in reply)
+
+	m.changeStatAfter(!ok, obj.RC, incrBy, vol(val))
 	return cp, nil
 }
 
@@ -258,15 +267,17 @@ func (m *Memory) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
 	m.Lock()
 	defer m.Unlock()
 
-	var o, ok = m.kvs[key]
-	if ok == false {
-		m.kvs[key] = copyObject(obj)
-		m.changeStatAfterSetRaw(false, 0, 0, int64(len(obj.Val)), obj.RC)
-		return
-	}
+	var (
+		o, ok           = m.kvs[key]
+		prevVol, prevRC int64
+	)
+
 	m.kvs[key] = copyObject(obj)
-	m.changeStatAfterSetRaw(true, int64(len(o.Val)), o.RC,
-		int64(len(obj.Val)), obj.RC)
+	if ok == true {
+		prevVol, prevRC = vol(o.Val), o.RC
+	}
+
+	m.changeStatAfterSetRaw(ok, prevVol, prevRC, vol(obj.Val), obj.RC)
 	return
 }
 
@@ -289,7 +300,7 @@ func (m *Memory) Incr(
 	}
 
 	obj.RC += incrBy
-	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+	m.changeStatAfter(false, obj.RC, incrBy, vol(obj.Val))
 
 	rc = obj.RC
 	access = obj.Access
@@ -316,7 +327,7 @@ func (m *Memory) IncrNotTouch(
 	}
 
 	obj.RC += incrBy
-	m.changeStatAfter(false, obj.RC, incrBy, int64(len(obj.Val)))
+	m.changeStatAfter(false, obj.RC, incrBy, vol(obj.Val))
 
 	rc = obj.RC
 	access = obj.Access
@@ -344,7 +355,8 @@ func (m *Memory) Take(key cipher.SHA256) (obj *data.Object, err error) {
 		err = data.ErrNotFound
 		return
 	}
-	m.changeStatAfterDel(obj.RC, int64(len(obj.Val)))
+	m.changeStatAfterDel(obj.RC, vol(obj.Val))
+	delete(m.kvs, key)
 	return
 }
 
@@ -359,7 +371,7 @@ func (m *Memory) Del(key cipher.SHA256) (err error) {
 		return data.ErrNotFound
 	}
 	delete(m.kvs, key)
-	m.changeStatAfterDel(obj.RC, int64(len(obj.Val)))
+	m.changeStatAfterDel(obj.RC, vol(obj.Val))
 	return
 }
 

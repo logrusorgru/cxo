@@ -339,15 +339,15 @@ func (r *Redis) changeStatAfter(created bool, rc, incrBy, volume int64) {
 	}
 	if rc <= 0 {
 		if rc-incrBy > 0 {
-			r.amount.used--                // } one of objects,
-			r.volume.used -= int64(volume) // }  turns to be not used
+			r.amount.used--         // } one of objects,
+			r.volume.used -= volume // }  turns to be not used
 		}
 		return
 	}
 	// rc > 0
 	if rc-incrBy <= 0 {
-		r.amount.used++                // } reborn
-		r.volume.used += int64(volume) // }
+		r.amount.used++         // } reborn
+		r.volume.used += volume // }
 	}
 	return
 }
