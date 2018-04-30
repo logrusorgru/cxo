@@ -674,10 +674,10 @@ func SetRaw(t *testing.T, ds data.CXDS) {
 			t.Errorf("wrong RC %d, want %d", obj.RC, 101)
 		}
 		if obj.Access.UnixNano() != 0 {
-			t.Error("access time has been changed", obj.Access)
+			t.Error("access time has been changed", obj.Access.UnixNano())
 		}
 		if obj.Create.UnixNano() != 0 {
-			t.Error("create time has been changed", obj.Create)
+			t.Error("create time has been changed", obj.Create.UnixNano())
 		}
 	})
 

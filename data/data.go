@@ -106,13 +106,8 @@ func (r *Root) Encode() (p []byte) {
 	s.Hash = r.Hash
 	s.Sig = r.Sig
 
-	if r.Access.IsZero() == false {
-		s.Access = r.Access.UnixNano()
-	}
-
-	if r.Create.IsZero() == false {
-		s.Create = r.Create.UnixNano()
-	}
+	s.Access = r.Access.UnixNano()
+	s.Create = r.Create.UnixNano()
 
 	return encoder.Serialize(&s)
 }
@@ -132,17 +127,8 @@ func (r *Root) Decode(p []byte) (err error) {
 	r.Hash = s.Hash
 	r.Sig = s.Sig
 
-	if s.Access == 0 {
-		r.Access = time.Time{}
-	} else {
-		r.Access = time.Unix(0, s.Access)
-	}
-
-	if s.Create == 0 {
-		r.Create = time.Time{}
-	} else {
-		r.Create = time.Unix(0, s.Create)
-	}
+	r.Access = time.Unix(0, s.Access)
+	r.Create = time.Unix(0, s.Create)
 
 	return
 }
@@ -170,13 +156,8 @@ func (o *Object) Encode() (b []byte) {
 	obj.Val = o.Val
 	obj.RC = o.RC
 
-	if o.Access.IsZero() == false {
-		obj.Access = o.Access.UnixNano()
-	}
-
-	if o.Create.IsZero() == false {
-		obj.Create = o.Create.UnixNano()
-	}
+	obj.Access = o.Access.UnixNano()
+	obj.Create = o.Create.UnixNano()
 
 	return encoder.Serialize(&obj)
 }
@@ -195,17 +176,8 @@ func (o *Object) Decode(p []byte) (err error) {
 	o.Val = obj.Val
 	o.RC = obj.RC
 
-	if obj.Access == 0 {
-		o.Access = time.Time{} // reset existing value to zero time
-	} else {
-		o.Access = time.Unix(0, obj.Access)
-	}
-
-	if obj.Create == 0 {
-		o.Create = time.Time{} // reset existing value to zero time
-	} else {
-		o.Create = time.Unix(0, obj.Create)
-	}
+	o.Access = time.Unix(0, obj.Access)
+	o.Create = time.Unix(0, obj.Create)
 
 	return
 }

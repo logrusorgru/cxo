@@ -83,8 +83,8 @@ func TestNewDB(t *testing.T) {
 func (r *Root) equal(s *Root) (eq bool) {
 	eq = r.Hash == s.Hash &&
 		r.Sig == s.Sig &&
-		r.Access.Equal(s.Access) &&
-		r.Create.Equal(s.Create)
+		r.Access.UnixNano() == s.Access.UnixNano() &&
+		r.Create.UnixNano() == s.Create.UnixNano()
 	return
 }
 
@@ -192,8 +192,8 @@ func TestRoot_Decode(t *testing.T) {
 func (o *Object) equal(e *Object) (eq bool) {
 	eq = bytes.Compare(o.Val, e.Val) == 0 &&
 		o.RC == e.RC &&
-		o.Access.Equal(e.Access) &&
-		o.Create.Equal(o.Create)
+		o.Access.UnixNano() == e.Access.UnixNano() &&
+		o.Create.UnixNano() == e.Create.UnixNano()
 	return
 }
 
@@ -217,7 +217,7 @@ func TestObject_Encode(t *testing.T) {
 	}
 
 	if o.equal(e) == false {
-		t.Error("decoded object is different")
+		t.Fatal("decoded object is different")
 	}
 
 	// full
@@ -225,8 +225,8 @@ func TestObject_Encode(t *testing.T) {
 	o.Val = []byte("value")
 	o.RC = 1050
 
-	o.Create = time.Now()
-	o.Access = time.Now()
+	o.Create = time.Unix(0, 0) // time.Now()
+	o.Access = time.Unix(0, 0) // time.Now()
 
 	p = o.Encode()
 
@@ -241,7 +241,7 @@ func TestObject_Encode(t *testing.T) {
 	}
 
 	if o.equal(e) == false {
-		t.Error("decoded Root is different")
+		t.Error("decoded Object is different")
 	}
 
 	// short input
@@ -360,13 +360,12 @@ func (*dummyCXDS) IncrNotTouch(
 	return
 }
 
-func (*dummyCXDS) Take(cipher.SHA256) (obj *Object, err error)  { return }
-func (*dummyCXDS) Del(cipher.SHA256) (err error)                { return }
-func (*dummyCXDS) Iterate(IterateObjectsFunc) (err error)       { return }
-func (*dummyCXDS) IterateDel(IterateObjectsDelFunc) (err error) { return }
-func (*dummyCXDS) Amount() (all, used int64)                    { return }
-func (*dummyCXDS) Volume() (all, used int64)                    { return }
-func (*dummyCXDS) IsSafeClosed() (sc bool)                      { return }
+func (*dummyCXDS) Take(cipher.SHA256) (obj *Object, err error) { return }
+func (*dummyCXDS) Del(cipher.SHA256) (err error)               { return }
+func (*dummyCXDS) Iterate(IterateKeysFunc) (err error)         { return }
+func (*dummyCXDS) Amount() (all, used int64)                   { return }
+func (*dummyCXDS) Volume() (all, used int64)                   { return }
+func (*dummyCXDS) IsSafeClosed() (sc bool)                     { return }
 
 func (d *dummyCXDS) Close() error {
 	return d.err
