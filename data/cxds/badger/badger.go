@@ -1,13 +1,13 @@
 package bolt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/dgraph-io/badger"
 
 	"github.com/skycoin/skycoin/src/cipher"
 
@@ -17,11 +17,7 @@ import (
 // ScanBy is default
 const ScanBy = 100
 
-var (
-	objsBucket = []byte("o") // objects bucket
-	infoBucket = []byte("i") // information bucket
-	infoKey    = infoBucket  // information key
-)
+var infoKey = []byte("i")
 
 func appendInt(p []byte, i int64) []byte {
 	var t [8]byte
@@ -95,10 +91,11 @@ func vol(val []byte) int64 {
 	return int64(len(val))
 }
 
-// Bolt implemets data.CXDS based on
-// github.com/boltdb/bolt.
-type Bolt struct {
-	b *bolt.DB
+// A Badger implements data.CXDS
+// interface. The badger based on
+// <github.com/dgraph-io/badger>.
+type Badger struct {
+	b *badger.DB
 
 	scanBy int
 
@@ -107,35 +104,27 @@ type Bolt struct {
 	closeo sync.Once
 }
 
-// NewBolt creates new DB or opens existsing.
+// NewBadger creates new DB or opens existsing.
 // The scanBy argument used by Iterate method.
 // If the scanBy is zero, then default value
-// used. Arguments path, mode and boltOptions
-// relate to bolt db.
-func NewBolt(
-	path string, //               : path to DB file
-	mode os.FileMode, //          : file mode
-	boltOptions *bolt.Options, // : bolt DB options (can be nil)
-	scanBy int, //                : elements in Iterate loop (zero is de)
-) (b *Bolt, err error) {
+// used. Opts is badger db options.
+func NewBadger(
+	opts badger.Options, // : badger options
+	scanBy int, //          : elements in Iterate loop (zero is default)
+) (b *Badger, err error) {
 
-	var db *bolt.DB
-	if db, err = bolt.Open(path, mode, boltOptions); err != nil {
+	var db *badger.DB
+	if db, err = badger.Open(opts); err != nil {
 		return
 	}
 
-	var x = new(Bolt)
+	var x = new(Badger)
 	x.b = db
 
 	if scanBy <= 0 {
 		x.scanBy = ScanBy
 	} else {
 		x.scanBy = scanBy
-	}
-
-	if err = x.createBucketsIfNotExists(); err != nil {
-		x.b.Close()
-		return
 	}
 
 	if err = x.getInfo(); err != nil {
@@ -154,65 +143,67 @@ func NewBolt(
 	return x, nil
 }
 
-func (b *Bolt) createBucketsIfNotExists() error {
-	return b.b.Update(func(t *bolt.Tx) (err error) {
-		if _, err = t.CreateBucketIfNotExists(infoBucket); err != nil {
+func (b *Badger) getInfo() (err error) {
+	err = b.b.View(func(t *badger.Txn) (err error) {
+		var it *badger.Item
+		if it, err = t.Get(infoKey); err != nil {
+			if err == badger.ErrKeyNotFound {
+				b.isSafeClosed = true // fresh DB
+				err = nil
+			}
 			return
 		}
-		_, err = t.CreateBucketIfNotExists(objsBucket)
-		return
-	})
-}
-
-func (b *Bolt) getInfo() (err error) {
-	err = b.b.View(func(t *bolt.Tx) (err error) {
-		var val = t.Bucket(infoBucket).Get(infoKey)
-		if len(val) == 0 {
-			b.isSafeClosed = true // fresh DB
+		var val []byte
+		if val, err = it.Value(); err != nil {
 			return
 		}
-		err = b.decode(val)
+		must(b.decode(val))
 		return
 	})
 	return
 }
 
-func (b *Bolt) setInfo() (err error) {
-	err = b.b.Update(func(t *bolt.Tx) error {
-		return t.Bucket(infoBucket).Put(infoKey, b.encode())
+func (b *Badger) setInfo() (err error) {
+	err = b.b.Update(func(tx *badger.Txn) (err error) {
+		return tx.Set(infoKey, b.encode())
 	})
 	return
 }
 
-func (b *Bolt) do(doFunc func(b *bolt.Bucket) error) error {
-	return b.b.Update(func(t *bolt.Tx) error {
-		return doFunc(t.Bucket(objsBucket))
-	})
+func (b *Badger) do(doFunc func(t *badger.Txn) error) error {
+	return b.b.Update(doFunc)
 }
 
 func getObject(
-	objs *bolt.Bucket, key cipher.SHA256,
+	objs *badger.Txn, key cipher.SHA256,
 ) (obj *data.Object, err error) {
 
-	var val = objs.Get(key[:])
-	if val == nil {
-		return nil, data.ErrNotFound
+	var it *badger.Item
+	if it, err = objs.Get(key[:]); err != nil {
+		if err == badger.ErrKeyNotFound {
+			return nil, data.ErrNotFound
+		}
+		return
+	}
+	var val []byte
+	if val, err = it.Value(); err != nil {
+		return
 	}
 	obj = new(data.Object)
 	must(obj.Decode(val))
 	return
 }
 
-func setObject(objs *bolt.Bucket, key cipher.SHA256, obj *data.Object) error {
-	return objs.Put(key[:], obj.Encode())
+func setObject(objs *badger.Txn, key cipher.SHA256, obj *data.Object) error {
+	return objs.Set(key[:], obj.Encode())
 }
 
 // Hooks retursn nil (not implemented)
-func (b *Bolt) Hooks() (hooks data.Hooks) {
+func (b *Badger) Hooks() (hooks data.Hooks) {
 	return // nil
 }
 
-func (b *Bolt) changeStatAfter(created bool, rc, incrBy, volume int64) {
+func (b *Badger) changeStatAfter(created bool, rc, incrBy, volume int64) {
 	b.Lock()
 	defer b.Unlock()
 
@@ -248,8 +239,8 @@ func (b *Bolt) changeStatAfter(created bool, rc, incrBy, volume int64) {
 // Touch object by its key updating its last access time.
 // The Touch method returns ErrNotFound if object doesn't
 // exist. The Touch returns previous last access time.
-func (b *Bolt) Touch(key cipher.SHA256) (access time.Time, err error) {
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+func (b *Badger) Touch(key cipher.SHA256) (access time.Time, err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 		var obj *data.Object
 		if obj, err = getObject(objs, key); err != nil {
 			return
@@ -269,18 +260,18 @@ func (b *Bolt) Touch(key cipher.SHA256) (access time.Time, err error) {
 // exist, then the Get* methods return ErrNotFound.
 //
 // Get Object by key updating its last access time.
-func (b *Bolt) Get(key cipher.SHA256) (*data.Object, error) {
+func (b *Badger) Get(key cipher.SHA256) (*data.Object, error) {
 	return b.GetIncr(key, 0)
 }
 
 // GetIncr is the same as the Get but it changes
 // RC using provided argument. The argument can
 // be zero, actually.
-func (b *Bolt) GetIncr(
+func (b *Badger) GetIncr(
 	key cipher.SHA256, incrBy int64,
 ) (obj *data.Object, err error) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 		if obj, err = getObject(objs, key); err != nil {
 			return
 		}
@@ -301,17 +292,17 @@ func (b *Bolt) GetIncr(
 
 // GetNotTouch is the same as the Get but it
 // doesn't update last access time.
-func (b *Bolt) GetNotTouch(key cipher.SHA256) (*data.Object, error) {
+func (b *Badger) GetNotTouch(key cipher.SHA256) (*data.Object, error) {
 	return b.GetIncrNotTouch(key, 0)
 }
 
 // GetIncNotTouch is the same as the GetIncr but
 // it doesn't update last access time.
-func (b *Bolt) GetIncrNotTouch(
+func (b *Badger) GetIncrNotTouch(
 	key cipher.SHA256, incrBy int64,
 ) (obj *data.Object, err error) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 		if obj, err = getObject(objs, key); err != nil {
 			return
 		}
@@ -335,7 +326,7 @@ func (b *Bolt) GetIncrNotTouch(
 //
 // Set creates new object or updates existsing. The Set
 // method equal to the SetIncr method with `incrBy = 1`.
-func (b *Bolt) Set(key cipher.SHA256, val []byte) (*data.Object, error) {
+func (b *Badger) Set(key cipher.SHA256, val []byte) (*data.Object, error) {
 	return b.SetIncr(key, val, 1)
 }
 
@@ -343,7 +334,7 @@ func (b *Bolt) Set(key cipher.SHA256, val []byte) (*data.Object, error) {
 // RC of object. If object already exists, then
 // no auto +1 added. The SetIncr with `incrBy = 1`
 // is the same as the Set.
-func (b *Bolt) SetIncr(
+func (b *Badger) SetIncr(
 	key cipher.SHA256, // : hash of the object
 	val []byte, //        : encoded object
 	incrBy int64, //      : inc- or decrement RC by this value
@@ -352,7 +343,7 @@ func (b *Bolt) SetIncr(
 	err error, //         : error if any
 ) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 
 		var (
 			now     = time.Now()
@@ -390,7 +381,7 @@ func (b *Bolt) SetIncr(
 
 // SetNotTouch is the same as the Set but it
 // doesn't update last access time.
-func (b *Bolt) SetNotTouch(
+func (b *Badger) SetNotTouch(
 	key cipher.SHA256, val []byte,
 ) (*data.Object, error) {
 	return b.SetIncrNotTouch(key, val, 1)
@@ -398,7 +389,7 @@ func (b *Bolt) SetNotTouch(
 
 // SetIncrNotTouch is the same as the SetIncr but
 // it doesn't update last access time.
-func (b *Bolt) SetIncrNotTouch(
+func (b *Badger) SetIncrNotTouch(
 	key cipher.SHA256, // : hash of the object
 	val []byte, //        : encoded object
 	incrBy int64, //      : inc- or decrement RC by this value
@@ -407,7 +398,7 @@ func (b *Bolt) SetIncrNotTouch(
 	err error, //         : error if any
 ) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 
 		var (
 			now     = time.Now()
@@ -447,7 +438,7 @@ func (b *Bolt) SetIncrNotTouch(
 }
 
 // call under lock
-func (b *Bolt) changeStatAfterSetRaw(
+func (b *Badger) changeStatAfterSetRaw(
 	overwritten bool, // : is overwritten
 	pvol, prc int64, //  : previous
 	vol, rc int64, //    : new
@@ -486,9 +477,9 @@ func (b *Bolt) changeStatAfterSetRaw(
 
 // SetRaw sets given object as is. If object alreday exists,
 // then the SetRaw method overwrites existing one.
-func (b *Bolt) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
+func (b *Badger) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 
 		var (
 			o               *data.Object
@@ -523,7 +514,7 @@ func (b *Bolt) SetRaw(key cipher.SHA256, obj *data.Object) (err error) {
 // Incr inc- or decrements RC of object with given
 // key using provided value. The Incr returns new
 // RC or error if any.
-func (b *Bolt) Incr(
+func (b *Badger) Incr(
 	key cipher.SHA256, // : hash of the object
 	incrBy int64, //      : inr- or decrement by
 ) (
@@ -532,7 +523,7 @@ func (b *Bolt) Incr(
 	err error, //         : error if any
 ) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 
 		var obj *data.Object
 		if obj, err = getObject(objs, key); err != nil {
@@ -553,7 +544,7 @@ func (b *Bolt) Incr(
 
 // IncrNotTouch is the same as the Incr but it
 // doesn't update last access time.
-func (b *Bolt) IncrNotTouch(
+func (b *Badger) IncrNotTouch(
 	key cipher.SHA256, // : hash of the object
 	incrBy int64, //      : inr- or decrement by
 ) (
@@ -562,7 +553,7 @@ func (b *Bolt) IncrNotTouch(
 	err error, //         : error if any
 ) {
 
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 
 		var obj *data.Object
 		if obj, err = getObject(objs, key); err != nil {
@@ -580,7 +571,7 @@ func (b *Bolt) IncrNotTouch(
 	return
 }
 
-func (b *Bolt) changeStatAfterDel(rc, vol int64) {
+func (b *Badger) changeStatAfterDel(rc, vol int64) {
 	b.amount.all--
 	b.volume.all -= vol
 
@@ -594,8 +585,8 @@ func (b *Bolt) changeStatAfterDel(rc, vol int64) {
 // (1) deleted object, (2) ErrNotFound if object
 // doesn't exist (3) any other error (DB failure,
 // for exmple).
-func (b *Bolt) Take(key cipher.SHA256) (obj *data.Object, err error) {
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+func (b *Badger) Take(key cipher.SHA256) (obj *data.Object, err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 		if obj, err = getObject(objs, key); err != nil {
 			return
 		}
@@ -608,8 +599,8 @@ func (b *Bolt) Take(key cipher.SHA256) (obj *data.Object, err error) {
 // Del deletes an object unconditionally. The Del
 // method returns ErrNotFound error if object doens't
 // exist in DB.
-func (b *Bolt) Del(key cipher.SHA256) (err error) {
-	err = b.do(func(objs *bolt.Bucket) (err error) {
+func (b *Badger) Del(key cipher.SHA256) (err error) {
+	err = b.do(func(objs *badger.Txn) (err error) {
 		var obj *data.Object
 		if obj, err = getObject(objs, key); err != nil {
 			return
@@ -630,7 +621,7 @@ func (b *Bolt) Del(key cipher.SHA256) (err error) {
 // Iterate never updates last access time.
 //
 // Iterate can skip new objects, and use deleted objects.
-func (b *Bolt) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
+func (b *Badger) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 
 	var (
 		last cipher.SHA256
@@ -640,13 +631,25 @@ func (b *Bolt) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 	)
 
 	for end == false {
-		b.do(func(objs *bolt.Bucket) (_ error) {
-			var c = objs.Cursor()
+		b.do(func(objs *badger.Txn) (_ error) {
+
+			var opts = badger.IteratorOptions{
+				PrefetchValues: true,
+				PrefetchSize:   b.scanBy,
+			}
+
+			var c = objs.NewIterator(opts)
+			defer c.Close()
+
 			for i := 0; i < b.scanBy; i++ {
-				var key []byte
-				if key, _ = c.Seek(last[:]); key == nil {
+				if c.Seek(last[:]); c.Valid() == false {
 					end = true
 					return
+				}
+				var key = c.Item().Key()
+				if bytes.Compare(key, infoKey) == 0 {
+					addOne(last[:])
+					continue
 				}
 				copy(last[:], key)
 				scan = append(scan, last)
@@ -673,7 +676,7 @@ func (b *Bolt) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 // Amount of objects. The 'all' means amount of all objects
 // and the 'used' is amount of objects with RC greater then
 // zero.
-func (b *Bolt) Amount() (all, used int64) {
+func (b *Badger) Amount() (all, used int64) {
 	b.Lock()
 	defer b.Unlock()
 
@@ -687,7 +690,7 @@ func (b *Bolt) Amount() (all, used int64) {
 // etc. The 'all' is volume of all objects,
 // and the 'used' is volume of objects with
 // RC greater then zero.
-func (b *Bolt) Volume() (all, used int64) {
+func (b *Badger) Volume() (all, used int64) {
 	b.Lock()
 	defer b.Unlock()
 
@@ -698,17 +701,17 @@ func (b *Bolt) Volume() (all, used int64) {
 // closed successfully last time. If the IsSafeClosed
 // returns false, then may be some repair required (it
 // depends).
-func (b *Bolt) IsSafeClosed() bool {
+func (b *Badger) IsSafeClosed() bool {
 	return b.isSafeClosed // no locks needed
 }
 
-// BoltDB returns underlying *bolt.DB
-func (b *Bolt) BoltDB() *bolt.DB {
+// Badger returns underlying *badger.DB
+func (b *Badger) Badger() *badger.DB {
 	return b.b
 }
 
-// Close the Bolt
-func (b *Bolt) Close() (err error) {
+// Close the Badger
+func (b *Badger) Close() (err error) {
 	b.closeo.Do(func() {
 		if err = b.setInfo(); err != nil {
 			b.b.Close() // drop error

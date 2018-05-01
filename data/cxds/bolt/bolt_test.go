@@ -13,7 +13,7 @@ var dbFileName = "test.bolt.go.ignore"
 func newBolt(t *testing.T) (b *Bolt) {
 	os.Remove(dbFileName)
 	var err error
-	if b, err = NewBolt(dbFileName, 0644, nil, 2); err != nil {
+	if b, err = NewBolt(dbFileName, 0644, nil, ScanBy); err != nil {
 		t.Fatal(err)
 	}
 	return
@@ -101,7 +101,7 @@ func TestBolt_IsSafeClosed(t *testing.T) {
 	defer closeBolt(t, b)
 
 	cxds.IsSafeClosed(t, b, func() (data.CXDS, error) {
-		return NewBolt(dbFileName, 0644, nil, 2)
+		return NewBolt(dbFileName, 0644, nil, ScanBy)
 	})
 }
 
