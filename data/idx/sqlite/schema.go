@@ -22,30 +22,24 @@ func logSQL(query string, args ...interface{}) {
 type root struct {
 	ID int64
 
-	Seq        uint64
-	HeadID     int64
-	AccessTime int64 // unix nano
-	Timestamp  int64 // uinx nano
-	Prev       string
-	Hash       string
-	Sig        string
+	Seq    uint64
+	HeadID int64
 
+	Hash string
+	Sig  string
+
+	AccessAt  time.Time
 	CreatedAt time.Time
-	UpdatedAt time.Time
 }
 
-// Scan *sql.Rows those contains 'seq', 'access_time',
-// 'timestamp', 'prev', 'hash', 'sig' and 'created_at'
+// Scan *sql.Rows those contains 'seq', 'hash', 'sig',
+// 'access_at' and 'created_at'
 // columns
 func (r *root) Scan(rows *sql.Rows) (err error) {
 	err = rows.Scan(
-		&r.Seq,        // }
-		&r.AccessTime, // }
-		&r.Timestamp,  // } the data.Root fields
-		&r.Prev,       // } --------------------
-		&r.Hash,       // }
-		&r.Sig,        // }
-		&r.CreatedAt,  // }
+		&r.Hash,      // }
+		&r.Sig,       // }
+		&r.CreatedAt, // }
 	)
 	return
 }

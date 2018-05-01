@@ -4,138 +4,111 @@ import (
 	"github.com/skycoin/skycoin/src/cipher"
 )
 
-// An IterateFeedsFunc represents function for
-// iterating over all feeds IdxDB contains
-type IterateFeedsFunc func(cipher.PubKey) error
+//
+type IterateFeedsFunc func(pk cipher.PubKey) (err error)
 
-// A Feeds represents bucket of feeds
-type Feeds interface {
-	// Add feed. Adding a feed twice or
-	// more times does nothing. The Add
-	// method returns related Heads or
-	// error if any
-	Add(pk cipher.PubKey) (hs Heads, err error)
-	// Del feed with all heads and Root objects
+//
+type IterateHeadsFunc func(nonce uint64) (err error)
+
+//
+type IterateRootsFunc func(seq uint64) (err error)
+
+// An IdxDB describes CXO database used to collect
+// objects. The IdxDB keeps information about feeds,
+// heads and root objects.
+type IdxDB interface {
+
+	//
+	// Feeds
+	//
+	// AddFeed. Adding a feed twice or more times
+	// does nothing.
+	AddFeed(pk cipher.PubKey) (err error)
+	// DelFeed with all heads and Root objects
 	// unconditionally. If feed doesn't exist
 	// then the Del returns ErrNoSuchFeed.
-	Del(pk cipher.PubKey) (err error)
-
+	DelFeed(pk cipher.PubKey) (err error)
 	// Iterate all feeds. Use ErrStopIteration to
 	// stop iteration. The Iterate passes any error
 	// returned from given function through. Except
 	// ErrStopIteration that turns nil. It's possible
 	// to mutate the IdxDB inside the Iterate
-	Iterate(iterateFunc IterateFeedsFunc) (err error)
-	// Has returns true if the IdxDB contains
+	IterateFeeds(iterateFunc IterateFeedsFunc) (err error)
+	// HasFeed returns true if the IdxDB contains
 	// feed with given public key
-	Has(pk cipher.PubKey) (ok bool, err error)
+	HasFeed(pk cipher.PubKey) (ok bool, err error)
+	// FeedsLen is number of feeds in DB
+	FeedsLen() (length int, err error)
 
-	// Heads of feed. It returns ErrNoSuchFeed
-	// if given feed doesn't exist
-	Heads(pk cipher.PubKey) (hs Heads, err error)
-
-	// Len is number of feeds stroed
-	Len() (length int, err error)
-}
-
-// An IterateHeadsFunc used to iterate over
-// heads of a feed
-type IterateHeadsFunc func(nonce uint64) (err error)
-
-// A Heads represents all heads of a feed
-type Heads interface {
-	// Roots of head with given nonce. If given
-	// head doesn't exists then, this method
-	// returns ErrNoSuchHead
-	Roots(nonce uint64) (rs Roots, err error)
-	// Add new head with given nonce.
+	//
+	// Heads
+	//
+	// AddHead new head with given nonce.
 	// If a head with given nonce already
 	// exists, then this method does nothing.
-	Add(nonce uint64) (rs Roots, err error)
-	// Del deletes head with given nonce and
+	AddHead(pk cipher.PubKey, nonce uint64) (err error)
+	// DelHead deletes head with given nonce and
 	// all its Root objects. The method returns
 	// ErrNoSuchHead if a head with given nonce
 	// doesn't exist.
-	Del(nonce uint64) (err error)
+	DelHead(pk cipher.PubKey, nonce uint64) (err error)
 	// Has returns true if a head with given
 	// nonce exits in the DB
-	Has(nonce uint64) (ok bool, err error)
+	HasHead(pk cipher.PubKey, nonce uint64) (ok bool, err error)
 	// Iterate over all heads
-	Iterate(iterateFunc IterateHeadsFunc) (err error)
+	IterateHeads(pk cipher.PubKey, iterateFunc IterateHeadsFunc) (err error)
+	// HeadsLen is number of heads stored
+	HeadsLen(pk cipher.PubKey) (length int, err error)
 
-	// Len is number of heads stored
-	Len() (length int, err error)
-}
-
-// An IterateRootsFunc represents function for
-// iterating over Root objects of a feed.
-// It's possible to add or remove Root inside
-// the IterateRootsFunc function.
-//
-// But underlying DB can handle add/remove
-// inside the IterateRootsFunc immediatly and
-// can handle it deffered. E.g., if you
-// delete first 10 Root objects in first loop,
-// then this function can be called 9 times with
-// deleted Root objects. And if you add 10 Root
-// objects in first loop, then this function can
-// skip this new Root objects.
-//
-// Short words, the function designed to work
-// with current Root.
-type IterateRootsFunc func(r *Root) (err error)
-
-// A Roots represents bucket of Root objects.
-// All Root objects ordered by seq number
-// from small to big
-type Roots interface {
-	// Ascend iterates all Root object ascending order.
+	//
+	// Roots
+	//
+	// AscendRoots iterates all Root object ascending order.
 	// Use ErrStopIteration to stop iteration. Any error
 	// (except the ErrStopIteration) returned by given
 	// IterateRootsFunc will be passed through. The
-	// Ascend doesn't update access time of a Root.
+	// AscendRoots doesn't update access time of a Root.
 	// See also IterateRootsFunc docs.
-	Ascend(iterateFunc IterateRootsFunc) (err error)
-	// Descend is the same as the Ascend, but it iterates
+	AscendRoots(
+		pk cipher.PubKey, nonce uint64, iterateFunc IterateRootsFunc,
+	) (err error)
+	// DescendRoots is the same as the Ascend, but it iterates
 	// decending order. Use ErrStopIteration to stop
-	// iteration. The Descend doesn't update access time.
+	// iteration. The DescendRoots doesn't update access time.
 	// See also IterateRootsFunc docs.
-	Descend(iterateFunc IterateRootsFunc) (err error)
-
-	// Set adds new Root object to the DB. If an
-	// object already exists, then the Set touch
-	// it updating acess time. In this case, the
-	// set changes Access field of the given Root.
-	// If Root doesn't exist, then the Set sets
-	// Create field too. Thus, the method modifies
-	// given Root in any case. E.g. if Root exists
-	// then fields Create and Access of given Root
-	// will be changed to saved. But Access field
-	// of saved Root will be changed to now.
-	Set(r *Root) (err error)
-
-	// Del Root by seq number. The Del never returns
-	// ErrNotFound if Root doesn't exist.
-	Del(seq uint64) (err error)
-
-	// Get Root by seq number
-	Get(seq uint64) (r *Root, err error)
-
+	DescendRoots(
+		pk cipher.PubKey, nonce uint64, iterateFunc IterateRootsFunc,
+	) (err error)
 	// Has the Roots Root with given seq?
-	Has(seq uint64) (ok bool, err error)
-
+	HasRoot(pk cipher.PubKey, nonce uint64, seq uint64) (ok bool, err error)
 	// Len is number of Root objects stored
-	Len() (length int, err error)
-}
+	RootsLen(pk cipher.PubKey, nonce uint64) (length int, err error)
 
-// An IdxDB repesents database that contains
-// meta information: feeds meta information
-// about Root objects. There is data/idxdb
-// package that implements the IdxDB. The
-// IdxDB returns and uses errors ErrNotFound,
-// ErrNoSuchFeed, ErrNoSuchHead, and
-// ErrStopIteration, and from this package.
-type IdxDB interface {
-	Tx(func(Feeds) error) error // start transaction
-	Close() error               // close the IdxDB
+	// SetRoot add or touch Root if exists
+	SetRoot(
+		pk cipher.PubKey,
+		nonce uint64,
+		seq uint64,
+		hash cipher.SHA256,
+		sig cipher.Sig,
+	) (root *Root, err error)
+	// SetNotTouch add Root or do nothing if exists
+	SetNotTouchRoot(
+		pk cipher.PubKey,
+		nonce uint64,
+		seq uint64,
+		hash cipher.SHA256,
+		sig cipher.Sig,
+	) (root *Root, err error)
+	// GetRoot returns root and touches stored.
+	GetRoot(pk cipher.PubKey, nonce uint64, seq uint64) (root *Root, err error)
+	// GetNotTouchRoot returns root.
+	GetNotTouchRoot(
+		pk cipher.PubKey, nonce uint32, seq uint64,
+	) (root *Root, err error)
+	// DelRoot deletes Root.
+	DelRoot(pk cipher.PubKey, nonce uint32, seq uint64) (err error)
+
+	// Close IdxDB
+	Close() error
 }
