@@ -64,8 +64,9 @@ type Root struct {
 	// of the Root
 	Sig cipher.Sig
 
-	// Access contains last
-	// access time in DB
+	// Access contains last access time in DB.
+	// Zero time can be checked using
+	// `.UnixNano() == 0` instead of `.IsZero()`
 	Access time.Time
 	// Create contains time whie the
 	// Root has been saved in DB
@@ -135,10 +136,18 @@ func (r *Root) Decode(p []byte) (err error) {
 
 // Object represents CX object
 type Object struct {
-	Val    []byte    // encoded value
-	RC     int64     // references counter
-	Access time.Time // last access time
-	Create time.Time // created at
+	// Val contains encoded value
+	Val []byte
+	// RC is references counter
+	RC int64
+	// Access is last access time.
+	// Zero time can be checked using
+	// `.UnixNano() == 0` instead of
+	// `.IsZero()`
+	Access time.Time
+	// Create is time where the
+	// Object was saved in DB.
+	Create time.Time
 }
 
 type object struct {

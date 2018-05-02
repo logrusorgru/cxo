@@ -641,17 +641,24 @@ func (b *Bolt) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 
 	for end == false {
 		b.do(func(objs *bolt.Bucket) (_ error) {
-			var c = objs.Cursor()
+			var (
+				c   = objs.Cursor()
+				key []byte
+			)
 			for i := 0; i < b.scanBy; i++ {
-				var key []byte
-				if key, _ = c.Seek(last[:]); key == nil {
-					end = true
+				if i == 0 {
+					key, _ = c.Seek(last[:]) // seek first
+				} else {
+					key, _ = c.Next() // use short path
+				}
+				if key == nil {
+					end = true // no more elements
 					return
 				}
 				copy(last[:], key)
 				scan = append(scan, last)
-				addOne(last[:])
 			}
+			addOne(last[:]) // for next 'do'
 			return
 		})
 

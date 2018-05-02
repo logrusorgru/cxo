@@ -642,19 +642,25 @@ func (b *Badger) Iterate(iterateFunc data.IterateKeysFunc) (err error) {
 			defer c.Close()
 
 			for i := 0; i < b.scanBy; i++ {
-				if c.Seek(last[:]); c.Valid() == false {
-					end = true
+				if i == 0 {
+					c.Seek(last[:])
+				} else {
+					c.Next()
+				}
+				if c.Valid() == false {
+					end = true // no more elements
 					return
 				}
 				var key = c.Item().Key()
 				if bytes.Compare(key, infoKey) == 0 {
 					addOne(last[:])
+					i--
 					continue
 				}
 				copy(last[:], key)
 				scan = append(scan, last)
-				addOne(last[:])
 			}
+			addOne(last[:])
 			return
 		})
 

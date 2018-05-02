@@ -1063,7 +1063,7 @@ func Iterate(t *testing.T, ds data.CXDS) {
 	// one object
 	var (
 		someKey, someVal = keyValueByString("something")
-		someVol          = int64(len(someVal))
+		vol              = int64(len(someVal))
 
 		err error
 	)
@@ -1072,22 +1072,41 @@ func Iterate(t *testing.T, ds data.CXDS) {
 		return
 	}
 
-	statShouldBe(t, ds, stat{1, 1}, stat{someVol, someVol})
+	statShouldBe(t, ds, stat{1, 1}, stat{vol, vol})
 	dsShouldHave(t, ds, someKey)
 
 	// second object
-	var (
-		otherKey, otherVal = keyValueByString("someother")
-		otherVol           = int64(len(otherVal))
-	)
+	var otherKey, otherVal = keyValueByString("someother")
+	vol += int64(len(otherVal))
 	if _, err = ds.Set(otherKey, otherVal); err != nil {
 		t.Error(err)
 		return
 	}
 
-	statShouldBe(t, ds, stat{2, 2},
-		stat{someVol + otherVol, someVol + otherVol})
+	statShouldBe(t, ds, stat{2, 2}, stat{vol, vol})
 	dsShouldHave(t, ds, someKey, otherKey)
+
+	// third object
+	var anyKey, anyVal = keyValueByString("anything")
+	vol += int64(len(anyVal))
+	if _, err = ds.Set(anyKey, anyVal); err != nil {
+		t.Error(err)
+		return
+	}
+
+	statShouldBe(t, ds, stat{3, 3}, stat{vol, vol})
+	dsShouldHave(t, ds, someKey, otherKey, anyKey)
+
+	// fourth object
+	var noKey, noVal = keyValueByString("nothing")
+	vol += int64(len(noVal))
+	if _, err = ds.Set(noKey, noVal); err != nil {
+		t.Error(err)
+		return
+	}
+
+	statShouldBe(t, ds, stat{4, 4}, stat{vol, vol})
+	dsShouldHave(t, ds, someKey, otherKey, anyKey, noKey)
 
 	// stop iteration
 	var called int
@@ -1105,15 +1124,15 @@ func Iterate(t *testing.T, ds data.CXDS) {
 	}
 
 	// pass error through
-	var breakingError = errors.New("breaking error")
+	var errBreaking = errors.New("breaking error")
 	called = 0
 	err = ds.Iterate(func(cipher.SHA256) error {
 		called++
-		return breakingError
+		return errBreaking
 	})
 	if err == nil {
 		t.Error("missing error")
-	} else if err != breakingError {
+	} else if err != errBreaking {
 		t.Error("unexpected error:", err)
 	} else if called != 1 {
 		t.Error("wrong times called", called)

@@ -79,7 +79,8 @@ type IdxDB interface {
 	DescendRoots(
 		pk cipher.PubKey, nonce uint64, iterateFunc IterateRootsFunc,
 	) (err error)
-	// Has the Roots Root with given seq?
+	// HasRoot returns true if Root with given seq exists. The HasRoot
+	// never updates access time.
 	HasRoot(pk cipher.PubKey, nonce uint64, seq uint64) (ok bool, err error)
 	// Len is number of Root objects stored
 	RootsLen(pk cipher.PubKey, nonce uint64) (length int, err error)

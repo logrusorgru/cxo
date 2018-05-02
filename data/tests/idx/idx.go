@@ -61,7 +61,7 @@ func DelFeed(t *testing.T, idx data.IdxDB) {
 	// not exist
 	if err := idx.DelFeed(pk); err == nil {
 		t.Error("missing error")
-	} else if err != data.ErrNotFound {
+	} else if err != data.ErrNoSuchFeed {
 		t.Error(err)
 	}
 
@@ -107,7 +107,7 @@ func IterateFeeds(t *testing.T, idx data.IdxDB) {
 		return
 	}
 
-	if called != 1 {
+	if called != 0 {
 		t.Error("wrong times called", called)
 		return
 	}
@@ -276,27 +276,35 @@ func AddHead(t *testing.T, idx data.IdxDB) {
 		pk, _        = cipher.GenerateKeyPair()
 		nonce uint64 = 1050
 
-		err error
 		ok  bool
+		err error
 	)
 
-	if _, err = idx.HasHead(pk, nonce); err != data.ErrNoSuchFeed {
+	// ErrNoSuchFeed
+	if err = idx.AddHead(pk, nonce); err != data.ErrNoSuchFeed {
 		t.Error("missing or wrong error:", err)
 	}
 
-	// ErrNoSouchHead
+	// has
 	if err = idx.AddFeed(pk); err != nil {
 		t.Error(err)
 	}
-	if _, err = idx.HasHead(pk, nonce); err != data.ErrNoSuchHead {
-		t.Error("missing or wrong error:", err)
-	}
-
-	// found
-	if ok, err = idx.HasHead(pk, nonce); err != nil {
+	if err = idx.AddHead(pk, nonce); err != nil {
 		t.Error(err)
 	}
-	if ok == false {
+	if ok, err = idx.HasHead(pk, nonce); err != nil {
+		t.Error(err)
+	} else if ok == false {
+		t.Error("has not")
+	}
+
+	// twice
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+	}
+	if ok, err = idx.HasHead(pk, nonce); err != nil {
+		t.Error(err)
+	} else if ok == false {
 		t.Error("has not")
 	}
 
@@ -342,8 +350,7 @@ func DelHead(t *testing.T, idx data.IdxDB) {
 
 	if ok, err = idx.HasHead(pk, nonce); err != nil {
 		t.Error(err)
-	}
-	if ok == true {
+	} else if ok == true {
 		t.Error("not deleted")
 	}
 
@@ -432,6 +439,7 @@ func IterateHeads(t *testing.T, idx data.IdxDB) {
 	if err = idx.AddHead(pk, n1); err != nil {
 		t.Error(err)
 	}
+	called = 0
 	err = idx.IterateHeads(pk, func(nonce uint64) (err error) {
 		called++
 		if nonce != n1 {
@@ -448,10 +456,11 @@ func IterateHeads(t *testing.T, idx data.IdxDB) {
 
 	// two
 	var n2 uint64 = 1090
-	if err = idx.AddHead(pk, n1); err != nil {
+	if err = idx.AddHead(pk, n2); err != nil {
 		t.Error(err)
 	}
 	var ns = map[uint64]struct{}{n1: {}, n2: {}}
+	called = 0
 	err = idx.IterateHeads(pk, func(nonce uint64) (err error) {
 		called++
 		if _, ok := ns[nonce]; ok == false {
@@ -469,6 +478,7 @@ func IterateHeads(t *testing.T, idx data.IdxDB) {
 
 	// stop iteration
 	ns = map[uint64]struct{}{n1: {}, n2: {}}
+	called = 0
 	err = idx.IterateHeads(pk, func(nonce uint64) (err error) {
 		called++
 		if _, ok := ns[nonce]; ok == false {
@@ -487,6 +497,7 @@ func IterateHeads(t *testing.T, idx data.IdxDB) {
 	// braking error
 	var errBreaking = errors.New("breaking error")
 	ns = map[uint64]struct{}{n1: {}, n2: {}}
+	called = 0
 	err = idx.IterateHeads(pk, func(nonce uint64) (err error) {
 		called++
 		if _, ok := ns[nonce]; ok == false {
@@ -592,7 +603,7 @@ func AscendRoots(t *testing.T, idx data.IdxDB) {
 		called++
 		return
 	})
-	if err != data.ErrNoSuchFeed {
+	if err != data.ErrNoSuchHead {
 		t.Error("missing or unexpected error:", err)
 	}
 	if called != 0 {
@@ -608,24 +619,8 @@ func AscendRoots(t *testing.T, idx data.IdxDB) {
 		called++
 		return
 	})
-	if err != data.ErrNoSuchFeed {
-		t.Error("missing or unexpected error:", err)
-	}
-	if called != 0 {
-		t.Error("wrong times called:", called)
-	}
-
-	// no Root objects
-	if err = idx.AddHead(pk, nonce); err != nil {
+	if err != nil {
 		t.Error(err)
-	}
-	called = 0
-	err = idx.AscendRoots(pk, nonce, func(uint64) (err error) {
-		called++
-		return
-	})
-	if err != data.ErrNoSuchFeed {
-		t.Error("missing or unexpected error:", err)
 	}
 	if called != 0 {
 		t.Error("wrong times called:", called)
@@ -700,7 +695,7 @@ func AscendRoots(t *testing.T, idx data.IdxDB) {
 	called = 0
 	err = idx.AscendRoots(pk, nonce, func(uint64) (err error) {
 		called++
-		return data.ErrStopIteration
+		return errBreaking
 	})
 	if err != errBreaking {
 		t.Error("wrong or missing error:", err)
@@ -745,7 +740,7 @@ func DescendRoots(t *testing.T, idx data.IdxDB) {
 		called++
 		return
 	})
-	if err != data.ErrNoSuchFeed {
+	if err != data.ErrNoSuchHead {
 		t.Error("missing or unexpected error:", err)
 	}
 	if called != 0 {
@@ -761,24 +756,8 @@ func DescendRoots(t *testing.T, idx data.IdxDB) {
 		called++
 		return
 	})
-	if err != data.ErrNoSuchFeed {
-		t.Error("missing or unexpected error:", err)
-	}
-	if called != 0 {
-		t.Error("wrong times called:", called)
-	}
-
-	// no Root objects
-	if err = idx.AddHead(pk, nonce); err != nil {
+	if err != nil {
 		t.Error(err)
-	}
-	called = 0
-	err = idx.DescendRoots(pk, nonce, func(uint64) (err error) {
-		called++
-		return
-	})
-	if err != data.ErrNoSuchFeed {
-		t.Error("missing or unexpected error:", err)
 	}
 	if called != 0 {
 		t.Error("wrong times called:", called)
@@ -853,7 +832,7 @@ func DescendRoots(t *testing.T, idx data.IdxDB) {
 	called = 0
 	err = idx.DescendRoots(pk, nonce, func(uint64) (err error) {
 		called++
-		return data.ErrStopIteration
+		return errBreaking
 	})
 	if err != errBreaking {
 		t.Error("wrong or missing error:", err)
@@ -1303,7 +1282,7 @@ func IsSafeClosed(
 ) {
 	// IsSafeClosed() bool
 
-	if ds.IsSafeClosed() == false {
+	if idx.IsSafeClosed() == false {
 		t.Error("fresh db is not safe closed")
 	}
 
@@ -1312,15 +1291,15 @@ func IsSafeClosed(
 	}
 
 	var err error
-	if err = ds.Close(); err != nil {
+	if err = idx.Close(); err != nil {
 		t.Error(err)
 	}
 
-	if ds, err = reopen(); err != nil {
+	if idx, err = reopen(); err != nil {
 		t.Error(err)
 	}
 
-	if ds.IsSafeClosed() == false {
+	if idx.IsSafeClosed() == false {
 		t.Error("not safe closed, after reopenning")
 	}
 
