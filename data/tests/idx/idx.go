@@ -3,6 +3,7 @@ package idx
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/skycoin/cxo/data"
 	"github.com/skycoin/skycoin/src/cipher"
@@ -911,52 +912,428 @@ func HasRoot(t *testing.T, idx data.IdxDB) {
 		t.Error("has not")
 	}
 
-	return
 }
 
 func RootsLen(t *testing.T, idx data.IdxDB) {
 	// RootsLen is number of Root objects stored
 
-	return
+	var (
+		pk, sk        = cipher.GenerateKeyPair()
+		nonce  uint64 = 1050
+		seq    uint64 = 10
+
+		l   int
+		err error
+	)
+
+	// ErrNoSuchFeed
+	if _, err = idx.RootsLen(pk, nonce); err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.RootsLen(pk, nonce); err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// has not
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	if l, err = idx.RootsLen(pk, nonce); err != nil {
+		t.Error(err)
+	} else if l != 0 {
+		t.Error("wrong length", l)
+	}
+
+	// has
+	var hash, sig = newRootByString("some", sk)
+	if _, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if l, err = idx.RootsLen(pk, nonce); err != nil {
+		t.Error(err)
+	} else if l != 1 {
+		t.Error("wrong length", l)
+	}
+
 }
 
 func SetRoot(t *testing.T, idx data.IdxDB) {
 	// SetRoot add or touch Root if exists
 
-	return
+	var (
+		pk, sk            = cipher.GenerateKeyPair()
+		nonce, seq uint64 = 1050, 10
+		hash, sig         = newRootByString("some", sk)
+
+		root *data.Root
+		err  error
+	)
+
+	// ErrNoSuchFeed
+	_, err = idx.SetRoot(pk, nonce, seq, hash, sig)
+	if err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	_, err = idx.SetRoot(pk, nonce, seq, hash, sig)
+	if err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// set
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	var tp = time.Now()
+	if root, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root stored")
+	}
+	if root.Create.After(tp) == false {
+		t.Error("wrong creating time")
+	}
+	if root.Access.UnixNano() != 0 {
+		t.Error("wrong access time")
+	}
+	var create = root.Create // for next test
+
+	// twice
+	if root, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root stored")
+	}
+	if root.Create.Equal(create) == false {
+		t.Error("wrong creating time")
+	}
+	if root.Access.Equal(create) == false {
+		t.Error("wrong access time")
+	}
+
 }
 
-func SetNotTouch(t *testing.T, idx data.IdxDB) {
-	// SetNotTouch add Root or do nothing if exists
+func SetNotTouchRoot(t *testing.T, idx data.IdxDB) {
+	// SetNotTouchRoot add Root or do nothing if exists
 
-	return
+	var (
+		pk, sk            = cipher.GenerateKeyPair()
+		nonce, seq uint64 = 1050, 10
+		hash, sig         = newRootByString("some", sk)
+
+		root *data.Root
+		err  error
+	)
+
+	// ErrNoSuchFeed
+	_, err = idx.SetNotTouchRoot(pk, nonce, seq, hash, sig)
+	if err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	_, err = idx.SetNotTouchRoot(pk, nonce, seq, hash, sig)
+	if err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// set
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	var tp = time.Now()
+	if root, err = idx.SetNotTouchRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root stored")
+	}
+	if root.Create.After(tp) == false {
+		t.Error("wrong creating time")
+	}
+	if root.Access.UnixNano() != 0 {
+		t.Error("wrong access time")
+	}
+	var create = root.Create // for next test
+
+	// twice
+	if root, err = idx.SetNotTouchRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root stored")
+	}
+	if root.Create.Equal(create) == false {
+		t.Error("wrong creating time")
+	}
+	if root.Access.UnixNano() != 0 {
+		t.Error("wrong access time (touched)")
+	}
+
 }
 
 func GetRoot(t *testing.T, idx data.IdxDB) {
 	// GetRoot returns root and touches stored.
 
-	return
+	var (
+		pk, sk            = cipher.GenerateKeyPair()
+		nonce, seq uint64 = 1050, 10
+		hash, sig         = newRootByString("some", sk)
+
+		root *data.Root
+		err  error
+	)
+
+	// ErrNoSuchFeed
+	if _, err = idx.GetRoot(pk, nonce, seq); err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.GetRoot(pk, nonce, seq); err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNotFound
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.GetRoot(pk, nonce, seq); err != data.ErrNotFound {
+		t.Error(err)
+		return
+	}
+
+	// get
+	var set *data.Root
+	if set, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if root, err = idx.GetRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root")
+	}
+	if root.Access.Equal(set.Create) == false {
+		t.Error("wrong access time")
+	}
+	if root.Create.Equal(set.Create) == false {
+		t.Error("wrong create time")
+	}
+
+	// twice
+	if root, err = idx.GetRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root")
+	}
+	if root.Access.After(set.Create) == false {
+		t.Error("wrong access time")
+	}
+	if root.Create.Equal(set.Create) == false {
+		t.Error("wrong create time")
+	}
+
 }
 
 func GetNotTouchRoot(t *testing.T, idx data.IdxDB) {
 	// GetNotTouchRoot returns root.
 
-	return
+	var (
+		pk, sk            = cipher.GenerateKeyPair()
+		nonce, seq uint64 = 1050, 10
+		hash, sig         = newRootByString("some", sk)
+
+		root *data.Root
+		err  error
+	)
+
+	// ErrNoSuchFeed
+	if _, err = idx.GetNotTouchRoot(pk, nonce, seq); err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.GetNotTouchRoot(pk, nonce, seq); err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNotFound
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.GetNotTouchRoot(pk, nonce, seq); err != data.ErrNotFound {
+		t.Error(err)
+		return
+	}
+
+	// get
+	var set *data.Root
+	if set, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if root, err = idx.GetNotTouchRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root")
+	}
+	if root.Access.Equal(set.Create) == false {
+		t.Error("wrong access time")
+	}
+	if root.Create.Equal(set.Create) == false {
+		t.Error("wrong create time")
+	}
+
+	// twice
+	if root, err = idx.GetNotTouchRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+		return
+	}
+	if root.Hash != hash || root.Sig != sig {
+		t.Error("wrong root")
+	}
+	if root.Access.Equal(set.Create) == false {
+		t.Error("wrong access time")
+	}
+	if root.Create.Equal(set.Create) == false {
+		t.Error("wrong create time")
+	}
 }
 
 func DelRoot(t *testing.T, idx data.IdxDB) {
 	// DelRoot deletes Root.
 
-	return
+	var (
+		pk, sk            = cipher.GenerateKeyPair()
+		nonce, seq uint64 = 1050, 10
+		hash, sig         = newRootByString("some", sk)
+
+		err error
+	)
+
+	// ErrNoSuchFeed
+	if err = idx.DelRoot(pk, nonce, seq); err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	if err = idx.DelRoot(pk, nonce, seq); err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNotFound
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	if err = idx.DelRoot(pk, nonce, seq); err != data.ErrNotFound {
+		t.Error(err)
+		return
+	}
+
+	// del
+	if _, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if err = idx.DelRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+		return
+	}
+	var ok bool
+	if ok, err = idx.HasRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+	} else if ok == true {
+		t.Error("has")
+	}
 }
 
-func IsSafeClosed(t *testing.T, idx data.IdxDB) {
-	//
-	return
+// IsSafeClosed test case. The reopen fucntion
+// can be nil if DB is in-memory.
+func IsSafeClosed(
+	t *testing.T, //                      : the T pointer
+	idx data.IdxDB, //                    : idx already opened
+	reopen func() (data.IdxDB, error), // : reopen idx to check the flag
+) {
+	// IsSafeClosed() bool
+
+	if ds.IsSafeClosed() == false {
+		t.Error("fresh db is not safe closed")
+	}
+
+	if reopen == nil {
+		return
+	}
+
+	var err error
+	if err = ds.Close(); err != nil {
+		t.Error(err)
+	}
+
+	if ds, err = reopen(); err != nil {
+		t.Error(err)
+	}
+
+	if ds.IsSafeClosed() == false {
+		t.Error("not safe closed, after reopenning")
+	}
+
 }
 
+// Close test case.
 func Close(t *testing.T, idx data.IdxDB) {
-	// Close IdxDB
+	// Close() (err error)
 
-	return
+	for i := 0; i < 2; i++ {
+		if err := idx.Close(); err != nil {
+			t.Error(i, err)
+		}
+	}
+
 }

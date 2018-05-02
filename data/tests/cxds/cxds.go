@@ -1122,20 +1122,94 @@ func Iterate(t *testing.T, ds data.CXDS) {
 }
 
 // Amount test case.
-func Amount(t *testing.T, ds data.CXDS) {
+func Amount(
+	t *testing.T, //                     :
+	ds data.CXDS, //                     :
+	reopen func() (data.CXDS, error), // :
+) {
 	// Amount() (all, used int64)
 
-	// other tests
+	var (
+		key, val = keyValueByString("something")
+
+		all, used int64
+		err       error
+	)
+
+	if _, err = ds.Set(key, val); err != nil {
+		t.Error(err)
+	}
+
+	if all, used = ds.Amount(); all != 1 && used != 1 {
+		t.Error("wrong volume:", all, used)
+	}
+
+	if reopen == nil {
+		t.Skip("[skip] can't reopen, reopen is nil")
+		return
+	}
+
+	if err = ds.Close(); err != nil {
+		t.Error(err)
+	}
+
+	if ds, err = reopen(); err != nil {
+		t.Error(err)
+		return
+	}
+
+	if all, used = ds.Amount(); all != 1 && used != 1 {
+		t.Error("wrong volume:", all, used)
+	}
+
 }
 
 // Volume test case.
-func Volume(t *testing.T, ds data.CXDS) {
+func Volume(
+	t *testing.T, //                     :
+	ds data.CXDS, //                     :
+	reopen func() (data.CXDS, error), // :
+) {
 	// Volume() (all, used int64)
 
-	// other tests
+	var (
+		key, val = keyValueByString("something")
+		vol      = int64(len(val))
+
+		all, used int64
+		err       error
+	)
+
+	if _, err = ds.Set(key, val); err != nil {
+		t.Error(err)
+	}
+
+	if all, used = ds.Volume(); all != vol && used != vol {
+		t.Error("wrong volume:", all, used)
+	}
+
+	if reopen == nil {
+		t.Skip("[skip] can't reopen, reopen is nil")
+		return
+	}
+
+	if err = ds.Close(); err != nil {
+		t.Error(err)
+	}
+
+	if ds, err = reopen(); err != nil {
+		t.Error(err)
+		return
+	}
+
+	if all, used = ds.Volume(); all != vol && used != vol {
+		t.Error("wrong volume:", all, used)
+	}
+
 }
 
-// IsSafeClosed test case. The reopen fucntion can be nil.
+// IsSafeClosed test case. The reopen fucntion
+// can be nil if DB is in-memory.
 func IsSafeClosed(
 	t *testing.T, //                     : the T pointer
 	ds data.CXDS, //                     : ds already opened

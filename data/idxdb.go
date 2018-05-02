@@ -104,10 +104,15 @@ type IdxDB interface {
 	GetRoot(pk cipher.PubKey, nonce uint64, seq uint64) (root *Root, err error)
 	// GetNotTouchRoot returns root.
 	GetNotTouchRoot(
-		pk cipher.PubKey, nonce uint32, seq uint64,
+		pk cipher.PubKey, nonce uint64, seq uint64,
 	) (root *Root, err error)
 	// DelRoot deletes Root.
-	DelRoot(pk cipher.PubKey, nonce uint32, seq uint64) (err error)
+	DelRoot(pk cipher.PubKey, nonce uint64, seq uint64) (err error)
+
+	// IsSafeClosed retursn true if last closing was successful,
+	// and no data lost. New DB returns true too, even if it never
+	// been closed before.
+	IsSafeClosed() bool
 
 	// Close IdxDB
 	Close() error

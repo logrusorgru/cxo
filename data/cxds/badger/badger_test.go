@@ -99,21 +99,42 @@ func TestBadger_Del(t *testing.T)  { runTestCase(t, cxds.Del) }
 
 func TestBadger_Iterate(t *testing.T) { runTestCase(t, cxds.Iterate) }
 
-func TestBadger_Amount(t *testing.T) { runTestCase(t, cxds.Amount) }
-func TestBadger_Volume(t *testing.T) { runTestCase(t, cxds.Volume) }
-
-func TestBadger_IsSafeClosed(t *testing.T) {
-
+func TestBadger_Amount(t *testing.T) {
 	var b = newBadger(t)
 	defer closeBadger(t, b)
-
-	cxds.IsSafeClosed(t, b, func() (data.CXDS, error) {
-
+	cxds.Amount(t, b, func() (data.CXDS, error) {
 		var opts = badger.DefaultOptions
 		opts.Dir = dbDirName
 		opts.ValueDir = dbDirName
+		var err error
+		b, err = NewBadger(opts, ScanBy)
+		return b, err
+	})
+}
 
-		return NewBadger(opts, ScanBy)
+func TestBadger_Volume(t *testing.T) {
+	var b = newBadger(t)
+	defer closeBadger(t, b)
+	cxds.Volume(t, b, func() (data.CXDS, error) {
+		var opts = badger.DefaultOptions
+		opts.Dir = dbDirName
+		opts.ValueDir = dbDirName
+		var err error
+		b, err = NewBadger(opts, ScanBy)
+		return b, err
+	})
+}
+
+func TestBadger_IsSafeClosed(t *testing.T) {
+	var b = newBadger(t)
+	defer closeBadger(t, b)
+	cxds.IsSafeClosed(t, b, func() (data.CXDS, error) {
+		var opts = badger.DefaultOptions
+		opts.Dir = dbDirName
+		opts.ValueDir = dbDirName
+		var err error
+		b, err = NewBadger(opts, ScanBy)
+		return b, err
 	})
 }
 

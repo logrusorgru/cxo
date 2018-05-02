@@ -104,8 +104,29 @@ func TestRedis_Del(t *testing.T)  { runTestCase(t, cxds.Del) }
 
 func TestRedis_Iterate(t *testing.T) { runTestCase(t, cxds.Iterate) }
 
-func TestRedis_Amount(t *testing.T) { runTestCase(t, cxds.Amount) }
-func TestRedis_Volume(t *testing.T) { runTestCase(t, cxds.Volume) }
+func TestRedis_Amount(t *testing.T) {
+
+	var r = newRedis(t)
+	defer closeRedis(t, r)
+
+	cxds.Amount(t, r, func() (data.CXDS, error) {
+		var err error
+		r, err = NewRedis("tcp", Address, nil)
+		return r, err
+	})
+}
+
+func TestRedis_Volume(t *testing.T) {
+
+	var r = newRedis(t)
+	defer closeRedis(t, r)
+
+	cxds.Volume(t, r, func() (data.CXDS, error) {
+		var err error
+		r, err = NewRedis("tcp", Address, nil)
+		return r, err
+	})
+}
 
 func TestRedis_IsSafeClosed(t *testing.T) {
 
@@ -113,7 +134,9 @@ func TestRedis_IsSafeClosed(t *testing.T) {
 	defer closeRedis(t, r)
 
 	cxds.IsSafeClosed(t, r, func() (data.CXDS, error) {
-		return NewRedis("tcp", Address, nil)
+		var err error
+		r, err = NewRedis("tcp", Address, nil)
+		return r, err
 	})
 }
 

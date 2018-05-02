@@ -92,16 +92,33 @@ func TestBolt_Del(t *testing.T)  { runTestCase(t, cxds.Del) }
 
 func TestBolt_Iterate(t *testing.T) { runTestCase(t, cxds.Iterate) }
 
-func TestBolt_Amount(t *testing.T) { runTestCase(t, cxds.Amount) }
-func TestBolt_Volume(t *testing.T) { runTestCase(t, cxds.Volume) }
-
-func TestBolt_IsSafeClosed(t *testing.T) {
-
+func TestBolt_Amount(t *testing.T) {
 	var b = newBolt(t)
 	defer closeBolt(t, b)
+	cxds.Amount(t, b, func() (data.CXDS, error) {
+		var err error
+		b, err = NewBolt(dbFileName, 0644, nil, ScanBy)
+		return b, err
+	})
+}
 
+func TestBolt_Volume(t *testing.T) {
+	var b = newBolt(t)
+	defer closeBolt(t, b)
+	cxds.Volume(t, b, func() (data.CXDS, error) {
+		var err error
+		b, err = NewBolt(dbFileName, 0644, nil, ScanBy)
+		return b, err
+	})
+}
+
+func TestBolt_IsSafeClosed(t *testing.T) {
+	var b = newBolt(t)
+	defer closeBolt(t, b)
 	cxds.IsSafeClosed(t, b, func() (data.CXDS, error) {
-		return NewBolt(dbFileName, 0644, nil, ScanBy)
+		var err error
+		b, err = NewBolt(dbFileName, 0644, nil, ScanBy)
+		return b, err
 	})
 }
 

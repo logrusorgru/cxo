@@ -38,8 +38,13 @@ func TestMemory_Del(t *testing.T)  { runTestCase(t, cxds.Del) }
 
 func TestMemory_Iterate(t *testing.T) { runTestCase(t, cxds.Iterate) }
 
-func TestMemory_Amount(t *testing.T) { runTestCase(t, cxds.Amount) }
-func TestMemory_Volume(t *testing.T) { runTestCase(t, cxds.Volume) }
+func TestMemory_Amount(t *testing.T) {
+	cxds.Amount(t, NewMemory(), nil)
+}
+
+func TestMemory_Volume(t *testing.T) {
+	cxds.Volume(t, NewMemory(), nil)
+}
 
 func TestMemory_IsSafeClosed(t *testing.T) {
 	cxds.IsSafeClosed(t, NewMemory(), nil)
