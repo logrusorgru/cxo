@@ -88,10 +88,12 @@ func NewBolt(
 	}
 
 	if x.isSafeClosed, err = x.getSafeClosed(); err != nil {
+		db.Close()
 		return
 	}
 
 	if err = x.setSafeClosed(false); err != nil {
+		db.Close()
 		return
 	}
 

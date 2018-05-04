@@ -615,7 +615,8 @@ func AscendRoots(t *testing.T, idx data.IdxDB) {
 		t.Error(err)
 	}
 	called = 0
-	err = idx.AscendRoots(pk, nonce, func(uint64) (err error) {
+	err = idx.AscendRoots(pk, nonce, func(seq uint64) (err error) {
+		println("ASCEND", seq)
 		called++
 		return
 	})
