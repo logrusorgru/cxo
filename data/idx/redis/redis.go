@@ -2,6 +2,7 @@ package redis
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -225,13 +226,13 @@ func (r *Redis) waitEvents() {
 // feed and heads (presence)
 // -------------------------
 //
-// idx:feed:[hex]                - HSET, HGET {nonce -> 1}, HDEL, HKEYS, DEL
+// idx:feed:[hex]                - HSET, HGET {nonce -> h}, HDEL, HKEYS, DEL
 //                                 {feed -> 1}
 //
 // root
 // ----
 //
-// idx:[hex]:[nonce] seq 1        - ZADD, ZRANGEBYSCORE, ZREMRANGEBYSCORE, DEL
+// idx:[hex]:[nonce] seq seq      - ZADD, ZRANGEBYSCORE, ZREMRANGEBYSCORE, DEL
 // idx:[hex]:[nonce]:[seq] [...]  - HSET, HDEL, HMSET, HMGET, DEL
 //
 
@@ -396,7 +397,52 @@ func (r *Redis) IterateHeads(
 	iterateFunc data.IterateHeadsFunc,
 ) (err error) {
 
-	//
+	var hasFeed bool
+	if err = radix.Cmd(&hasFeed, "EXISTS", "idx:feed:"+pk.Hex()); err != nil {
+		return
+	}
+
+	if hasFeed == false {
+		err = data.ErrNoSuchFeed
+		return
+	}
+
+	var opts = radix.ScanOpts{
+		Command: "HSCAN",                //
+		Count:   r.scanCount,            //
+		Key:     "idx:feed:" + pk.Hex(), //
+		Pattern: "[^f]*",                // except 'feed'
+	}
+
+	var (
+		scan = radix.NewScanner(r.pool, opts)
+
+		elem  string
+		nonce uint64
+	)
+
+	for scan.Next(&elem) == true {
+
+		if elem == "h" {
+			continue // skip value
+		}
+
+		if nonce, err = strconv.ParseInt(elem, 10, 64); err != nil {
+			panic(err) // must not happens
+		}
+
+		if err = iterateFunc(nonce); err != nil {
+			if err != data.ErrStopIteration {
+				err = nil
+				break // go to the scan.Close()
+			}
+			scan.Close() // drop error
+			return
+		}
+
+	}
+
+	err = scan.Close()
 	return
 }
 
@@ -427,6 +473,91 @@ func (r *Redis) HeadsLen(pk cipher.PubKey) (length int, err error) {
 	return
 }
 
+func (r *Redis) rangeRoots(
+	pk cipher.PubKey,
+	nonce uint64,
+	iterateFunc data.IterateRootsFunc,
+	reverse bool,
+) (
+	err error,
+) {
+
+	// in:  feed, head, start, scan_by, reverse
+	// out: has_feed, has_head, {seqs}
+
+	var (
+		feed = pk.Hex()
+		head = strconv.FormatInt(nonce, base)
+
+		startSeq uint64
+		start    string = "-inf"
+	)
+
+	if reverse == true {
+		start = "+inf"
+	}
+
+	for i := 0; ; i++ {
+
+		if i > 0 {
+			start = strconv.FormatInt(startSeq, 10)
+		}
+
+		var reply rangeRootsReply
+		err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.rangeRootsLua, 5,
+			"feed",
+			"head",
+			"start",
+			"scan_by",
+			"reverse",
+			feed,
+			head,
+			start,
+			r.scanCount,
+			reverse,
+		))
+
+		if err != nil {
+			return
+		}
+
+		if reply.HasFeed == false {
+			return data.ErrNoSuchFeed
+		}
+
+		if reply.HasHead == false {
+			return data.ErrNoSuchHead
+		}
+
+		if len(reply.Seqs) == 0 {
+			break // end
+		}
+
+		for _, seq := range reply.Seqs {
+
+			if err = iterateFunc(seq); err != nil {
+				if err == data.ErrStopIteration {
+					err = nil
+				}
+				return // stop
+			}
+
+		}
+
+		startSeq = seq
+
+		// from next
+		if reverse == false {
+			startSeq++ // direct
+		} else {
+			startSeq-- // reverse
+		}
+
+	}
+
+	return
+}
+
 // AscendRoots iterates all Root object ascending order.
 // Use ErrStopIteration to stop iteration. Any error
 // (except the ErrStopIteration) returned by given
@@ -437,8 +568,7 @@ func (r *Redis) AscendRoots(
 	pk cipher.PubKey, nonce uint64, iterateFunc data.IterateRootsFunc,
 ) (err error) {
 
-	//
-	return
+	return r.rangeRoots(pk, nonce, iterateFunc, false)
 }
 
 // DescendRoots is the same as the Ascend, but it iterates
@@ -449,8 +579,7 @@ func (r *Redis) DescendRoots(
 	pk cipher.PubKey, nonce uint64, iterateFunc data.IterateRootsFunc,
 ) (err error) {
 
-	//
-	return
+	return r.rangeRoots(pk, nonce, iterateFunc, true)
 }
 
 // HasRoot returns true if Root with given seq exists. The HasRoot
@@ -459,16 +588,60 @@ func (r *Redis) HasRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (ok bool, err error) {
 
-	//
+	var reply []int
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.hasRoot, 3,
+		"feed",
+		"head",
+		"seq",
+		pk.Hex(),
+		nonce,
+		seq,
+	))
+
+	if err != nil {
+		return
+	}
+
+	if len(reply) != 3 {
+		err = fmt.Errorf("invalid response length %d, want 3", len(reply))
+	} else if reply[0] == 0 {
+		err = data.ErrNoSuchFeed
+	} else if reply[1] == 0 {
+		err = data.ErrNoSuchHead
+	} else {
+		ok = reply[2] == 1
+	}
+
 	return
 }
 
-// Len is number of Root objects stored
+// RootsLen is number of Root objects stored
 func (r *Redis) RootsLen(
 	pk cipher.PubKey, nonce uint64,
-) (length int, err error) {
+) (length int64, err error) {
 
-	//
+	var reply []int64
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.rootsLen, 2,
+		"feed",
+		"head",
+		pk.Hex(),
+		nonce,
+	))
+
+	if err != nil {
+		return
+	}
+
+	if len(reply) != 3 {
+		err = fmt.Errorf("invalid response length %d, want 3", len(reply))
+	} else if reply[0] == 0 {
+		err = data.ErrNoSuchFeed
+	} else if reply[1] == 0 {
+		err = data.ErrNoSuchHead
+	} else {
+		length = reply[2]
+	}
+
 	return
 }
 
@@ -481,7 +654,36 @@ func (r *Redis) SetRoot(
 	sig cipher.Sig,
 ) (root *data.Root, err error) {
 
-	//
+	var reply setRootReply
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.setRoot, 6,
+		"feed",
+		"head",
+		"seq",
+		"hash",
+		"sig",
+		"now",
+		pk.Hex(),
+		nonce,
+		seq,
+		hash,
+		sig,
+		time.Now().UnixNano(),
+	))
+	if err != nil {
+		return
+	}
+
+	if reply.HasFeed == false {
+		return data.ErrNoSuchFeed
+	} else if reply.HasHead == false {
+		return data.ErrNoSuchHead
+	}
+
+	root = new(data.Root)
+	root.Hash = hash
+	root.Sig = sig
+	root.Access = reply.Access // last access time
+	root.Create = reply.Create
 	return
 }
 
@@ -494,7 +696,36 @@ func (r *Redis) SetNotTouchRoot(
 	sig cipher.Sig,
 ) (root *data.Root, err error) {
 
-	//
+	var reply setRootReply
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.setRootNotTouch, 6,
+		"feed",
+		"head",
+		"seq",
+		"hash",
+		"sig",
+		"now",
+		pk.Hex(),
+		nonce,
+		seq,
+		hash,
+		sig,
+		time.Now().UnixNano(),
+	))
+	if err != nil {
+		return
+	}
+
+	if reply.HasFeed == false {
+		return data.ErrNoSuchFeed
+	} else if reply.HasHead == false {
+		return data.ErrNoSuchHead
+	}
+
+	root = new(data.Root)
+	root.Hash = hash
+	root.Sig = sig
+	root.Access = reply.Access // last access time
+	root.Create = reply.Create
 	return
 }
 
