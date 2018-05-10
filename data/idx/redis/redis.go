@@ -32,11 +32,15 @@ type Redis struct {
 	scanCount int
 
 	// scripts (SHA1)
-	touchLua                                               string
-	getLua, getIncrLua, getNotTouchLua, getIncrNotTouchLua string
-	setIncrLua, setIncrNotTouchLua, setRawLua              string
-	incrLua, incrNotTouchLua                               string
-	delLua, takeLua                                        string
+	addHeadLua                         string
+	delFeedLua, delHeadLua, delRootLua string
+	takeRootLua                        string
+	feedsLenLua, headsLenLua           string
+	rootsLenLua                        string
+	getRootLua, getRootNotTouchLua     string
+	hasHeadLua, hasRootLua             string
+	rangeRootsLua                      string
+	setRootLua, setRootNotTouchLua     string
 
 	closeo sync.Once
 }
@@ -127,18 +131,21 @@ func (r *Redis) loadScripts() (err error) {
 	}
 
 	for _, sh := range []scriptHash{
-		{touchLua, &r.touchLua},
-		{getLua, &r.getLua},
-		{getIncrLua, &r.getIncrLua},
-		{getNotTouchLua, &r.getNotTouchLua},
-		{getIncrNotTouchLua, &r.getIncrNotTouchLua},
-		{setIncrLua, &r.setIncrLua},
-		{setIncrNotTouchLua, &r.setIncrNotTouchLua},
-		{setRawLua, &r.setRawLua},
-		{incrLua, &r.incrLua},
-		{incrNotTouchLua, &r.incrNotTouchLua},
-		{delLua, &r.delLua},
-		{takeLua, &r.takeLua},
+		{addHeadLua, &r.addHead},
+		{delFeedLua, &r.delFeed},
+		{delHeadLua, &r.delHead},
+		{delRootLua, &r.delRoot},
+		{takeRootLua, &r.takeRoot},
+		{feedsLenLua, &r.feedsLen},
+		{headsLenLua, &r.headsLen},
+		{rootsLenLua, &r.rootsLen},
+		{getRootLua, &r.getRoot},
+		{getRootNotTouchLua, &r.getRootNotTouch},
+		{hasHeadLua, &r.hasHead},
+		{hasRootLua, &r.hasRoot},
+		{rangeRootsLua, &r.rangeRoots},
+		{setRootLua, &r.setRoot},
+		{setRootNotTouchLua, &r.setRootNotTouch},
 	} {
 		err = r.pool.Do(radix.Cmd(sh.hash, "SCRIPT", "LOAD", sh.script))
 		if err != nil {
@@ -150,6 +157,8 @@ func (r *Redis) loadScripts() (err error) {
 }
 
 /*
+
+// *********************** reserved *********************** //
 
 func (r *Redis) subscribeExpiredEvents(conf *Config) (err error) {
 
@@ -238,7 +247,7 @@ func (r *Redis) waitEvents() {
 
 // AddFeed. Adding a feed twice or more times does nothing.
 func (r *Redis) AddFeed(pk cipher.PubKey) (err error) {
-	err = r.pool.Do(radix.Cmd(nil, "SET", "idx:feed:"+pk.Hex(), "1"))
+	err = r.pool.Do(radix.Cmd(nil, "HSET", "idx:feed:"+pk.Hex(), "feed", "1"))
 	return
 }
 
@@ -674,9 +683,9 @@ func (r *Redis) SetRoot(
 	}
 
 	if reply.HasFeed == false {
-		return data.ErrNoSuchFeed
+		return nil, data.ErrNoSuchFeed
 	} else if reply.HasHead == false {
-		return data.ErrNoSuchHead
+		return nil, data.ErrNoSuchHead
 	}
 
 	root = new(data.Root)
@@ -716,9 +725,9 @@ func (r *Redis) SetNotTouchRoot(
 	}
 
 	if reply.HasFeed == false {
-		return data.ErrNoSuchFeed
+		return nil, data.ErrNoSuchFeed
 	} else if reply.HasHead == false {
-		return data.ErrNoSuchHead
+		return nil, data.ErrNoSuchHead
 	}
 
 	root = new(data.Root)
@@ -734,7 +743,36 @@ func (r *Redis) GetRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (root *data.Root, err error) {
 
-	//
+	var reply getRootReply
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.getRoot, 4,
+		"feed",
+		"head",
+		"seq",
+		"now",
+		pk.Hex(),
+		nonce,
+		seq,
+		time.Now().UnixNano(),
+	))
+	if err != nil {
+		return
+	}
+
+	if reply.HasFeed == false {
+		return nil, data.ErrNoSuchFeed
+	} else if reply.HasHead == false {
+		return nil, data.ErrNoSuchHead
+	}
+
+	if reply.Hash == (cipher.SHA256{}) {
+		return nil, data.ErrNotFound
+	}
+
+	root = new(data.Root)
+	root.Hash = reply.Hash
+	root.Sig = reply.Sig
+	root.Access = reply.Access // last access time
+	root.Create = reply.Create
 	return
 }
 
@@ -743,7 +781,70 @@ func (r *Redis) GetNotTouchRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (root *data.Root, err error) {
 
-	//
+	var reply getRootReply
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.getRoot, 3,
+		"feed",
+		"head",
+		"seq",
+		pk.Hex(),
+		nonce,
+		seq,
+	))
+	if err != nil {
+		return
+	}
+
+	if reply.HasFeed == false {
+		return nil, data.ErrNoSuchFeed
+	} else if reply.HasHead == false {
+		return nil, data.ErrNoSuchHead
+	}
+
+	if reply.Hash == (cipher.SHA256{}) {
+		return nil, data.ErrNotFound
+	}
+
+	root = new(data.Root)
+	root.Hash = reply.Hash
+	root.Sig = reply.Sig
+	root.Access = reply.Access // last access time
+	root.Create = reply.Create
+	return
+}
+
+// TakeRoot deletes Root returinig it.
+func (r *Redis) TakeRoot(
+	pk cipher.PubKey, nonce uint64, seq uint64,
+) (err error) {
+
+	var reply getRootReply
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.takeRoot, 3,
+		"feed",
+		"head",
+		"seq",
+		pk.Hex(),
+		nonce,
+		seq,
+	))
+	if err != nil {
+		return
+	}
+
+	if reply.HasFeed == false {
+		return nil, data.ErrNoSuchFeed
+	} else if reply.HasHead == false {
+		return nil, data.ErrNoSuchHead
+	}
+
+	if reply.Hash == (cipher.SHA256{}) {
+		return nil, data.ErrNotFound
+	}
+
+	root = new(data.Root)
+	root.Hash = reply.Hash
+	root.Sig = reply.Sig
+	root.Access = reply.Access // last access time
+	root.Create = reply.Create
 	return
 }
 
@@ -752,7 +853,29 @@ func (r *Redis) DelRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (err error) {
 
-	//
+	var reply []int
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.delRoot, 3,
+		"feed",
+		"head",
+		"seq",
+		pk.Hex(),
+		nonce,
+		seq,
+	))
+	if err != nil {
+		return
+	}
+
+	if len(reply) != 3 {
+		err = fmt.Errorf("invalid response length: %d, want 3", len(reply))
+	} else if reply[0] == 0 {
+		err = data.ErrNoSuchFeed
+	} else if reply[1] == 0 {
+		err = data.ErrNoSuchHead
+	} else if reply[2] == 0 {
+		err = data.ErrNotFound
+	}
+
 	return
 }
 

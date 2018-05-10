@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/skycoin/cxo/data"
+	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/mediocregopher/radix.v3/resp"
 )
@@ -39,6 +40,15 @@ func respTime(b *bufio.Reader) (t time.Time, err error) {
 		panic(err) // must not happen
 	}
 	t = time.Unix(0, i)
+	return
+}
+
+func respBytes(b *bufio.Reader) (p []byte, err error) {
+	var s resp.BulkStringBytes
+	if err = s.UnmarshalRESP(b); err != nil {
+		return
+	}
+	p = s.B
 	return
 }
 
@@ -106,6 +116,60 @@ func (s *setRootReply) UnmarshalRESP(b *bufio.Reader) error {
 	for _, tp := range []*time.Time{
 		&s.Access,
 		&s.Create,
+	} {
+		if *tp, err = respTime(b); err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+type getRootReply struct {
+	HasFeed bool
+	HasHead bool
+	Hash    cipher.SHA256
+	Sig     cipher.Sig
+	Access  time.Time
+	Create  time.Time
+}
+
+func (g *getRootReply) UnmarshalRESP(b *bufio.Reader) (err error) {
+
+	if n, err := respArrayHead(b); err != nil {
+		return err
+	} else if n != 5 {
+		return fmt.Errorf("invalid response length %d, wnat 5", n)
+	}
+
+	for _, bp := range []*bool{
+		&g.HasFeed,
+		&g.HasHead,
+	} {
+		if *bp, err = respBool(b); err != nil {
+			return
+		}
+	}
+
+	if p, err := respBytes(b); err != nil {
+		return err
+	} else if len(p) != len(cipher.SHA256) {
+		panic(fmt.Errorf("invalid (idx/redis) root#hash length %d", len(p)))
+	} else {
+		copy(g.Hash[:], p)
+	}
+
+	if p, err := respBytes(b); err != nil {
+		return err
+	} else if len(p) != len(cipher.Sig) {
+		panic(fmt.Errorf("invalid (idx/redis) root#sig length %d", len(p)))
+	} else {
+		copy(g.Sig[:], p)
+	}
+
+	for _, tp := range []*time.Time{
+		&g.Access,
+		&g.Create,
 	} {
 		if *tp, err = respTime(b); err != nil {
 			return

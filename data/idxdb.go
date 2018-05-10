@@ -107,6 +107,8 @@ type IdxDB interface {
 	GetNotTouchRoot(
 		pk cipher.PubKey, nonce uint64, seq uint64,
 	) (root *Root, err error)
+	// TakeRoot deletes Root returinig it.
+	TakeRoot(pk cipher.PubKey, nonce uint64, seq uint64) (root *Root, err error)
 	// DelRoot deletes Root.
 	DelRoot(pk cipher.PubKey, nonce uint64, seq uint64) (err error)
 

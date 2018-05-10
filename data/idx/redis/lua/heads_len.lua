@@ -22,10 +22,12 @@ end
 local hscan_no = 0; -- HSCAN number
 local hscan;        -- HSCAN reply
 
+local match = '[^f]*'; -- except the 'feed' key->value pair
+
 -- break while the 'hscan_no' turns to be string '0'
 while hscan_no ~= '0' do
 
-	hscan = redis.call('SCAN', hscan_no,
+	hscan = redis.call('HSCAN', feed, hscan_no,
 		'MATCH', match,
 		'COUNT', scan_count);
 
@@ -33,9 +35,5 @@ while hscan_no ~= '0' do
 	count    = count + ((#hscan[2]) / 2);
 
 end
-
--- HSET idx:feed:hex feed 1
--- the {feed -> 1} is not a head
-count = count - 2;
 
 return {has_feed, count};
