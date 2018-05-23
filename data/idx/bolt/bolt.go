@@ -721,6 +721,40 @@ func (b *Bolt) GetNotTouchRoot(
 	return
 }
 
+// TakeRoot deletes Root returning it.
+func (b *Bolt) TakeRoot(
+	pk cipher.PubKey, nonce uint64, seq uint64,
+) (root *data.Root, err error) {
+
+	err = b.b.Update(func(tx *bolt.Tx) (err error) {
+
+		var feed = tx.Bucket(pk[:])
+		if feed == nil {
+			return data.ErrNoSuchFeed
+		}
+
+		var head = feed.Bucket(utob(nonce))
+		if head == nil {
+			return data.ErrNoSuchHead
+		}
+
+		var (
+			seqb = utob(seq)
+			val  = head.Get(seqb)
+		)
+		if val == nil {
+			return data.ErrNotFound
+		}
+
+		root = new(data.Root)
+		must(root.Decode(val))
+
+		return head.Delete(seqb)
+	})
+
+	return
+}
+
 // DelRoot deletes Root.
 func (b *Bolt) DelRoot(pk cipher.PubKey, nonce uint64, seq uint64) error {
 

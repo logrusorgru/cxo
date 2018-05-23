@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/skycoin/cxo/data"
 	"github.com/skycoin/skycoin/src/cipher"
 
 	"github.com/mediocregopher/radix.v3/resp"
@@ -26,7 +25,7 @@ func respBool(b *bufio.Reader) (t bool, err error) {
 	if err = i.UnmarshalRESP(b); err != nil {
 		return
 	}
-	t = (i != 0)
+	t = (i.I != 0)
 	return
 }
 
@@ -36,7 +35,7 @@ func respTime(b *bufio.Reader) (t time.Time, err error) {
 		return
 	}
 	var i int64
-	if i, err = strconv.ParseInt(s, 10, 64); err != nil {
+	if i, err = strconv.ParseInt(s.S, 10, 64); err != nil {
 		panic(err) // must not happen
 	}
 	t = time.Unix(0, i)
@@ -58,7 +57,7 @@ type rangeRootsReply struct {
 	Seqs    []uint64
 }
 
-func (r *rangeRootsReply) UnmarshalRESP(b *bufio.Reader) error {
+func (r *rangeRootsReply) UnmarshalRESP(b *bufio.Reader) (err error) {
 
 	if n, err := respArrayHead(b); err != nil {
 		return err
@@ -83,7 +82,7 @@ func (r *rangeRootsReply) UnmarshalRESP(b *bufio.Reader) error {
 		return
 	}
 
-	r.Seqs = seqs
+	r.Seqs = seqs.I.([]uint64)
 	return
 }
 
@@ -95,7 +94,7 @@ type setRootReply struct {
 	Create  time.Time
 }
 
-func (s *setRootReply) UnmarshalRESP(b *bufio.Reader) error {
+func (s *setRootReply) UnmarshalRESP(b *bufio.Reader) (err error) {
 
 	if n, err := respArrayHead(b); err != nil {
 		return err
@@ -153,7 +152,7 @@ func (g *getRootReply) UnmarshalRESP(b *bufio.Reader) (err error) {
 
 	if p, err := respBytes(b); err != nil {
 		return err
-	} else if len(p) != len(cipher.SHA256) {
+	} else if len(p) != len(cipher.SHA256{}) {
 		panic(fmt.Errorf("invalid (idx/redis) root#hash length %d", len(p)))
 	} else {
 		copy(g.Hash[:], p)
@@ -161,7 +160,7 @@ func (g *getRootReply) UnmarshalRESP(b *bufio.Reader) (err error) {
 
 	if p, err := respBytes(b); err != nil {
 		return err
-	} else if len(p) != len(cipher.Sig) {
+	} else if len(p) != len(cipher.Sig{}) {
 		panic(fmt.Errorf("invalid (idx/redis) root#sig length %d", len(p)))
 	} else {
 		copy(g.Sig[:], p)

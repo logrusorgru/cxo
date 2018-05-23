@@ -77,4 +77,4 @@ else
 
 end
 
-return return {has_feed, has_head, created, access, create};
+return {has_feed, has_head, created, access, create};

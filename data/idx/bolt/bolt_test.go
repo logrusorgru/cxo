@@ -60,7 +60,8 @@ func TestBolt_GetNotTouchRoot(t *testing.T) {
 	runTestCase(t, idx.GetNotTouchRoot)
 }
 
-func TestBolt_DelRoot(t *testing.T) { runTestCase(t, idx.DelRoot) }
+func TestBolt_TakeRoot(t *testing.T) { runTestCase(t, idx.TakeRoot) }
+func TestBolt_DelRoot(t *testing.T)  { runTestCase(t, idx.DelRoot) }
 
 func TestBolt_IsSafeClosed(t *testing.T) {
 	var b = newBolt(t)

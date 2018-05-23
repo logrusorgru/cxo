@@ -39,7 +39,8 @@ func TestMemory_GetNotTouchRoot(t *testing.T) {
 	runTestCase(t, idx.GetNotTouchRoot)
 }
 
-func TestMemory_DelRoot(t *testing.T) { runTestCase(t, idx.DelRoot) }
+func TestMemory_TakeRoot(t *testing.T) { runTestCase(t, idx.TakeRoot) }
+func TestMemory_DelRoot(t *testing.T)  { runTestCase(t, idx.DelRoot) }
 
 func TestMemory_IsSafeClosed(t *testing.T) {
 	var m = NewMemory(ScanBy)

@@ -521,6 +521,29 @@ func (m *Memory) GetNotTouchRoot(
 	return
 }
 
+// TakeRoot deletes Root returning it.
+func (m *Memory) TakeRoot(
+	pk cipher.PubKey, nonce uint64, seq uint64,
+) (root *data.Root, err error) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	var hs, ok = m.feeds[pk]
+	if ok == false {
+		return nil, data.ErrNoSuchFeed
+	}
+	var rs *tree
+	if rs, ok = hs[nonce]; ok == false {
+		return nil, data.ErrNoSuchHead
+	}
+	if root = rs.get(seq); root == nil {
+		return nil, data.ErrNotFound
+	}
+	rs.del(seq)
+	return
+}
+
 // DelRoot deletes Root.
 func (m *Memory) DelRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,

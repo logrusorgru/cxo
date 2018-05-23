@@ -24,23 +24,19 @@ type Redis struct {
 	pool         *radix.Pool // conenctions pool
 	isSafeClosed bool        // current state
 
-	// LRU timeout feature
-	expire     int64      // a'la time.Duration in seconds
-	expireFunc ExpireFunc //
-
 	// scanning (iterate)
 	scanCount int
 
 	// scripts (SHA1)
-	addHeadLua                         string
-	delFeedLua, delHeadLua, delRootLua string
-	takeRootLua                        string
-	feedsLenLua, headsLenLua           string
-	rootsLenLua                        string
-	getRootLua, getRootNotTouchLua     string
-	hasHeadLua, hasRootLua             string
-	rangeRootsLua                      string
-	setRootLua, setRootNotTouchLua     string
+	addHead                   string
+	delFeed, delHead, delRoot string
+	takeRoot                  string
+	feedsLen, headsLen        string
+	rootsLen                  string
+	getRoot, getRootNotTouch  string
+	hasHead, hasRoot          string
+	rangeRoots                string
+	setRoot, setRootNotTouch  string
 
 	closeo sync.Once
 }
@@ -71,21 +67,8 @@ func NewRedis(
 
 	var rs Redis
 	rs.pool = pool
-	rs.expire = int64(conf.Expire / time.Second)
-	rs.expireFunc = conf.ExpireFunc
-	rs.scanCount = conf.ScanCount
 
 	if err = rs.loadScripts(); err != nil {
-		pool.Close()
-		return
-	}
-
-	if err = rs.subscribeExpiredEvents(conf); err != nil {
-		pool.Close()
-		return
-	}
-
-	if err = rs.loadStat(); err != nil {
 		pool.Close()
 		return
 	}
@@ -156,70 +139,6 @@ func (r *Redis) loadScripts() (err error) {
 	return
 }
 
-/*
-
-// *********************** reserved *********************** //
-
-func (r *Redis) subscribeExpiredEvents(conf *Config) (err error) {
-
-	if conf.Expire == 0 {
-		return // don't subscribe (feature disabled)
-	}
-
-	// make sure that pool size is enough to wait subscriptions (1 connection)
-	if conf.Size < 2 {
-		return fmt.Errorf("can't enable Expire feature, small pool size %d",
-			conf.Size)
-	}
-
-	// enable 'expired' event notifications
-	err = r.pool.Do(radix.Cmd(nil, "CONFIG", "SET",
-		"notify-keyspace-events", "Ex",
-	))
-
-	if err != nil {
-		return
-	}
-
-	// run subscription in separate goroutine (ignore all errors)
-	go r.waitEvents()
-	return
-}
-
-func (r *Redis) waitEvents() {
-
-	r.pool.Do(radix.WithConn("", func(c radix.Conn) (err error) {
-		var psc = radix.PubSub(c)
-		defer psc.Close()
-
-		var ch = make(chan radix.PubSubMessage, 10)
-
-		const eventExpired = "__keyevent@0__:expired"
-
-		psc.Subscribe(ch, eventExpired)
-		// defer psc.Unsubscribe(ch, eventExpired) // closed connection here
-
-		for msg := range ch {
-			if msg.Type != "message" {
-				continue
-			}
-			if msg.Pattern != eventExpired {
-				continue
-			}
-			var ms = string(msg.Message)
-			ms = strings.TrimPrefix(ms, ":")
-
-			var hash = cipher.MustSHA256FromHex(ms)
-			r.expireFunc(hash) // callback
-		}
-
-		return
-	}))
-
-}
-
-*/
-
 // prefix
 // ------
 //
@@ -241,7 +160,7 @@ func (r *Redis) waitEvents() {
 // root
 // ----
 //
-// idx:[hex]:[nonce] seq seq      - ZADD, ZRANGEBYSCORE, ZREMRANGEBYSCORE, DEL
+// idx:[hex]:[nonce] seq seq      - ZADD, ZRANGE, ZREVRANGE, ZREM, DEL
 // idx:[hex]:[nonce]:[seq] [...]  - HSET, HDEL, HMSET, HMGET, DEL
 //
 
@@ -259,7 +178,7 @@ func (r *Redis) DelFeed(pk cipher.PubKey) (err error) {
 	err = r.pool.Do(radix.FlatCmd(nil, "EVALSHA", r.delFeed, 2,
 		"feed",
 		"scan_count",
-		key.Hex(),
+		pk.Hex(),
 		r.scanCount,
 	))
 	return
@@ -375,7 +294,7 @@ func (r *Redis) DelHead(pk cipher.PubKey, nonce uint64) (err error) {
 func (r *Redis) HasHead(pk cipher.PubKey, nonce uint64) (ok bool, err error) {
 
 	var reply []bool
-	err = r.pool.Do(radix.FlatCmd(&hasFeed, "EVALSHA", r.hasHead, 2,
+	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.hasHead, 2,
 		"feed",
 		"head",
 		pk.Hex(),
@@ -407,7 +326,10 @@ func (r *Redis) IterateHeads(
 ) (err error) {
 
 	var hasFeed bool
-	if err = radix.Cmd(&hasFeed, "EXISTS", "idx:feed:"+pk.Hex()); err != nil {
+	err = r.pool.Do(radix.Cmd(&hasFeed, "EXISTS",
+		"idx:feed:"+pk.Hex(),
+	))
+	if err != nil {
 		return
 	}
 
@@ -436,7 +358,7 @@ func (r *Redis) IterateHeads(
 			continue // skip value
 		}
 
-		if nonce, err = strconv.ParseInt(elem, 10, 64); err != nil {
+		if nonce, err = strconv.ParseUint(elem, 10, 64); err != nil {
 			panic(err) // must not happens
 		}
 
@@ -482,7 +404,7 @@ func (r *Redis) HeadsLen(pk cipher.PubKey) (length int, err error) {
 	return
 }
 
-func (r *Redis) rangeRoots(
+func (r *Redis) RangeRoots(
 	pk cipher.PubKey,
 	nonce uint64,
 	iterateFunc data.IterateRootsFunc,
@@ -496,7 +418,7 @@ func (r *Redis) rangeRoots(
 
 	var (
 		feed = pk.Hex()
-		head = strconv.FormatInt(nonce, base)
+		head = strconv.FormatUint(nonce, 10)
 
 		startSeq uint64
 		start    string = "-inf"
@@ -509,11 +431,11 @@ func (r *Redis) rangeRoots(
 	for i := 0; ; i++ {
 
 		if i > 0 {
-			start = strconv.FormatInt(startSeq, 10)
+			start = strconv.FormatUint(startSeq, 10)
 		}
 
 		var reply rangeRootsReply
-		err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.rangeRootsLua, 5,
+		err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.rangeRoots, 5,
 			"feed",
 			"head",
 			"start",
@@ -538,10 +460,6 @@ func (r *Redis) rangeRoots(
 			return data.ErrNoSuchHead
 		}
 
-		if len(reply.Seqs) == 0 {
-			break // end
-		}
-
 		for _, seq := range reply.Seqs {
 
 			if err = iterateFunc(seq); err != nil {
@@ -551,15 +469,18 @@ func (r *Redis) rangeRoots(
 				return // stop
 			}
 
+			startSeq = seq
 		}
-
-		startSeq = seq
 
 		// from next
 		if reverse == false {
 			startSeq++ // direct
 		} else {
 			startSeq-- // reverse
+		}
+
+		if len(reply.Seqs) < r.scanCount {
+			break // end
 		}
 
 	}
@@ -577,7 +498,7 @@ func (r *Redis) AscendRoots(
 	pk cipher.PubKey, nonce uint64, iterateFunc data.IterateRootsFunc,
 ) (err error) {
 
-	return r.rangeRoots(pk, nonce, iterateFunc, false)
+	return r.RangeRoots(pk, nonce, iterateFunc, false)
 }
 
 // DescendRoots is the same as the Ascend, but it iterates
@@ -588,7 +509,7 @@ func (r *Redis) DescendRoots(
 	pk cipher.PubKey, nonce uint64, iterateFunc data.IterateRootsFunc,
 ) (err error) {
 
-	return r.rangeRoots(pk, nonce, iterateFunc, true)
+	return r.RangeRoots(pk, nonce, iterateFunc, true)
 }
 
 // HasRoot returns true if Root with given seq exists. The HasRoot
@@ -627,7 +548,7 @@ func (r *Redis) HasRoot(
 // RootsLen is number of Root objects stored
 func (r *Redis) RootsLen(
 	pk cipher.PubKey, nonce uint64,
-) (length int64, err error) {
+) (length int, err error) {
 
 	var reply []int64
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.rootsLen, 2,
@@ -648,7 +569,7 @@ func (r *Redis) RootsLen(
 	} else if reply[1] == 0 {
 		err = data.ErrNoSuchHead
 	} else {
-		length = reply[2]
+		length = int(reply[2])
 	}
 
 	return
@@ -815,7 +736,7 @@ func (r *Redis) GetNotTouchRoot(
 // TakeRoot deletes Root returinig it.
 func (r *Redis) TakeRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
-) (err error) {
+) (root *data.Root, err error) {
 
 	var reply getRootReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.takeRoot, 3,
@@ -896,13 +817,6 @@ func (r *Redis) Pool() *radix.Pool {
 func (r *Redis) Close() (err error) {
 
 	r.closeo.Do(func() {
-		// TODO (kostyarin): unsubscribe 'expired' events handler first
-
-		if err = r.storeStat(); err != nil {
-			r.pool.Close() // drop error
-			return
-		}
-
 		if err = r.setSafeClosed(true); err != nil {
 			r.pool.Close() // drop error
 			return

@@ -1222,6 +1222,70 @@ func GetNotTouchRoot(t *testing.T, idx data.IdxDB) {
 	}
 }
 
+func TakeRoot(t *testing.T, idx data.IdxDB) {
+	// TakeRoot deletes Root returning it
+
+	var (
+		pk, sk            = cipher.GenerateKeyPair()
+		nonce, seq uint64 = 1050, 10
+		hash, sig         = newRootByString("some", sk)
+
+		err error
+	)
+
+	// ErrNoSuchFeed
+	if _, err = idx.TakeRoot(pk, nonce, seq); err != data.ErrNoSuchFeed {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNoSuchHead
+	if err = idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.TakeRoot(pk, nonce, seq); err != data.ErrNoSuchHead {
+		t.Error("wrong or missing error:", err)
+	}
+
+	// ErrNotFound
+	if err = idx.AddHead(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	}
+	if _, err = idx.TakeRoot(pk, nonce, seq); err != data.ErrNotFound {
+		t.Error(err)
+		return
+	}
+
+	// del
+	var set, take *data.Root
+
+	if set, err = idx.SetRoot(pk, nonce, seq, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+	if take, err = idx.TakeRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+		return
+	}
+	var ok bool
+	if ok, err = idx.HasRoot(pk, nonce, seq); err != nil {
+		t.Error(err)
+	} else if ok == true {
+		t.Error("has")
+	}
+
+	if take.Hash != set.Hash || take.Sig != set.Sig {
+		t.Error("wrong root")
+	}
+	if take.Access.Equal(set.Create) == false {
+		t.Error("wrong access time")
+	}
+	if take.Create.Equal(set.Create) == false {
+		t.Error("wrong create time")
+	}
+}
+
 func DelRoot(t *testing.T, idx data.IdxDB) {
 	// DelRoot deletes Root.
 
