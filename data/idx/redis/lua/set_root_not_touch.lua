@@ -53,7 +53,7 @@ if exists == 0 then
 	redis.call('HMSET', root_key,
 		'sig', sig,
 		'hash', hash,
-		'access', now,  -- can't be less then the create time
+		'access', '0', -- never been
 		'create', now);
 
 	create = now;

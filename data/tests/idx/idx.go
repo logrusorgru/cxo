@@ -656,7 +656,7 @@ func AscendRoots(t *testing.T, idx data.IdxDB) {
 	}
 	called = 0
 	err = idx.AscendRoots(pk, nonce, func(seq uint64) (err error) {
-		println("ASCEND", seq)
+		t.Log("AscendRoots (error)", seq)
 		called++
 		return
 	})
@@ -1112,7 +1112,7 @@ func SetNotTouchRoot(t *testing.T, idx data.IdxDB) {
 		t.Error("wrong creating time")
 	}
 	if root.Access.UnixNano() != 0 {
-		t.Error("wrong access time (touched)")
+		t.Error("wrong access time (touched):", root.Access)
 	}
 
 }

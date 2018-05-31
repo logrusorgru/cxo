@@ -33,16 +33,16 @@ end
 
 local root_key = 'idx:' .. hex .. ':' .. head .. ':' .. seq;
 
+-- does not exist
+if redis.call('EXISTS', root_key) == 0 then
+	return {has_feed, has_head, hash, sig, access, create};
+end
+
 local root = redis.call('HMGET', root_key,
 	'hash',
 	'sig',
 	'access',
 	'create');
-
--- does not exist
-if (not root) then
-	return {has_feed, has_head, hash, sig, access, create};
-end
 
 hash   = root[1];
 sig    = root[2];

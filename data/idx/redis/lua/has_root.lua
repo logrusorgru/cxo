@@ -25,7 +25,7 @@ end
 
 if has_head == 1 then
 	has_root = redis.call('EXISTS',
-		'idx:' .. hex .. ':' .. nonce .. ':' .. seq);
+		'idx:' .. hex .. ':' .. head .. ':' .. seq);
 end
 
 return {has_feed, has_head, has_root};
