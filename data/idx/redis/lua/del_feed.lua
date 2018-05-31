@@ -5,6 +5,9 @@
 -- in:  feed, scan_count
 -- out: has_feed
 
+-- replicate commands
+redis.replicate_commands();
+
 local hex        = ARGV[1];              -- hex
 local feed       = 'idx:feed:' .. hex;   -- idx:feed:hex
 local match      = 'idx:' .. hex .. ':*' -- idx:hex:*
@@ -12,18 +15,12 @@ local scan_count = ARGV[2];              -- scan by
 local scan_no    = 0;                    -- scan no
 local scan;                              -- SCAN reply
 
--- has feed?
-local has_feed = redis.call('EXISTS', feed);
+-- delete feed and heads
+has_feed = redis.call('DEL', feed);
 
 if has_feed == 0 then
 	return has_feed; -- 0
 end
-
--- delete feed and heads
-redis.call('DEL', feed);
-
--- replicate commands
-redis.replicate_commands();
 
 -- delete roots (keys)
 -- break while the 'scan_no' turns to be string '0'

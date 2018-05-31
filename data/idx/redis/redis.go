@@ -166,6 +166,7 @@ func (r *Redis) loadScripts() (err error) {
 
 // AddFeed. Adding a feed twice or more times does nothing.
 func (r *Redis) AddFeed(pk cipher.PubKey) (err error) {
+	println("AddFeed")
 	err = r.pool.Do(radix.Cmd(nil, "HSET", "idx:feed:"+pk.Hex(), "feed", "1"))
 	return
 }
@@ -174,13 +175,21 @@ func (r *Redis) AddFeed(pk cipher.PubKey) (err error) {
 // unconditionally. If feed doesn't exist
 // then the Del returns ErrNoSuchFeed.
 func (r *Redis) DelFeed(pk cipher.PubKey) (err error) {
+	println("DelFeed")
 
-	err = r.pool.Do(radix.FlatCmd(nil, "EVALSHA", r.delFeed, 2,
+	var hasFeed int64
+	err = r.pool.Do(radix.FlatCmd(&hasFeed, "EVALSHA", r.delFeed, 2,
 		"feed",
 		"scan_count",
 		pk.Hex(),
 		r.scanCount,
 	))
+
+	println("HAS FEED", hasFeed)
+	if hasFeed == 0 {
+		err = data.ErrNoSuchFeed
+	}
+
 	return
 }
 
@@ -190,6 +199,7 @@ func (r *Redis) DelFeed(pk cipher.PubKey) (err error) {
 // ErrStopIteration that turns nil. It's possible
 // to mutate the IdxDB inside the Iterate
 func (r *Redis) IterateFeeds(iterateFunc data.IterateFeedsFunc) (err error) {
+	println("IterateFeeds")
 
 	var opts = radix.ScanOpts{
 		Command: "SCAN",
@@ -229,6 +239,7 @@ func (r *Redis) IterateFeeds(iterateFunc data.IterateFeedsFunc) (err error) {
 // HasFeed returns true if the IdxDB contains
 // feed with given public key
 func (r *Redis) HasFeed(pk cipher.PubKey) (ok bool, err error) {
+	println("HasFeed")
 
 	err = r.pool.Do(radix.Cmd(&ok, "EXISTS", "idx:feed:"+pk.Hex()))
 	return
@@ -236,6 +247,7 @@ func (r *Redis) HasFeed(pk cipher.PubKey) (ok bool, err error) {
 
 // FeedsLen is number of feeds in DB
 func (r *Redis) FeedsLen() (length int, err error) {
+	println("FeedsLen")
 
 	err = r.pool.Do(radix.FlatCmd(&length, "EVALSHA", r.feedsLen, 1,
 		"scan_count",
@@ -248,6 +260,7 @@ func (r *Redis) FeedsLen() (length int, err error) {
 // If a head with given nonce already
 // exists, then this method does nothing.
 func (r *Redis) AddHead(pk cipher.PubKey, nonce uint64) (err error) {
+	println("AddHead")
 
 	var hasFeed bool
 	err = r.pool.Do(radix.FlatCmd(&hasFeed, "EVALSHA", r.addHead, 2,
@@ -270,6 +283,7 @@ func (r *Redis) AddHead(pk cipher.PubKey, nonce uint64) (err error) {
 // ErrNoSuchHead if a head with given nonce
 // doesn't exist.
 func (r *Redis) DelHead(pk cipher.PubKey, nonce uint64) (err error) {
+	println("DelHead")
 
 	var hasFeed bool
 	err = r.pool.Do(radix.FlatCmd(&hasFeed, "EVALSHA", r.delHead, 3,
@@ -292,6 +306,7 @@ func (r *Redis) DelHead(pk cipher.PubKey, nonce uint64) (err error) {
 // Has returns true if a head with given
 // nonce exits in the DB
 func (r *Redis) HasHead(pk cipher.PubKey, nonce uint64) (ok bool, err error) {
+	println("HasHead")
 
 	var reply []bool
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.hasHead, 2,
@@ -324,6 +339,7 @@ func (r *Redis) IterateHeads(
 	pk cipher.PubKey,
 	iterateFunc data.IterateHeadsFunc,
 ) (err error) {
+	println("IterateHeads")
 
 	var hasFeed bool
 	err = r.pool.Do(radix.Cmd(&hasFeed, "EXISTS",
@@ -379,6 +395,7 @@ func (r *Redis) IterateHeads(
 
 // HeadsLen is number of heads
 func (r *Redis) HeadsLen(pk cipher.PubKey) (length int, err error) {
+	println("HeadsLen")
 
 	var reply []int
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.feedsLen, 1,
@@ -412,6 +429,7 @@ func (r *Redis) RangeRoots(
 ) (
 	err error,
 ) {
+	println("RangeRoots")
 
 	// in:  feed, head, start, scan_by, reverse
 	// out: has_feed, has_head, {seqs}
@@ -497,6 +515,7 @@ func (r *Redis) RangeRoots(
 func (r *Redis) AscendRoots(
 	pk cipher.PubKey, nonce uint64, iterateFunc data.IterateRootsFunc,
 ) (err error) {
+	println("AscendRoots")
 
 	return r.RangeRoots(pk, nonce, iterateFunc, false)
 }
@@ -508,6 +527,7 @@ func (r *Redis) AscendRoots(
 func (r *Redis) DescendRoots(
 	pk cipher.PubKey, nonce uint64, iterateFunc data.IterateRootsFunc,
 ) (err error) {
+	println("DescendRoots")
 
 	return r.RangeRoots(pk, nonce, iterateFunc, true)
 }
@@ -517,6 +537,7 @@ func (r *Redis) DescendRoots(
 func (r *Redis) HasRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (ok bool, err error) {
+	println("HasRoot")
 
 	var reply []int
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.hasRoot, 3,
@@ -549,6 +570,7 @@ func (r *Redis) HasRoot(
 func (r *Redis) RootsLen(
 	pk cipher.PubKey, nonce uint64,
 ) (length int, err error) {
+	println("RootsLen")
 
 	var reply []int64
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.rootsLen, 2,
@@ -583,6 +605,7 @@ func (r *Redis) SetRoot(
 	hash cipher.SHA256,
 	sig cipher.Sig,
 ) (root *data.Root, err error) {
+	println("SetRoot")
 
 	var reply setRootReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.setRoot, 6,
@@ -625,6 +648,7 @@ func (r *Redis) SetNotTouchRoot(
 	hash cipher.SHA256,
 	sig cipher.Sig,
 ) (root *data.Root, err error) {
+	println("SetNotTouchRoot")
 
 	var reply setRootReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.setRootNotTouch, 6,
@@ -663,6 +687,7 @@ func (r *Redis) SetNotTouchRoot(
 func (r *Redis) GetRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (root *data.Root, err error) {
+	println("GetRoot")
 
 	var reply getRootReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.getRoot, 4,
@@ -701,6 +726,7 @@ func (r *Redis) GetRoot(
 func (r *Redis) GetNotTouchRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (root *data.Root, err error) {
+	println("GetNotTouchRoot")
 
 	var reply getRootReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.getRoot, 3,
@@ -737,6 +763,7 @@ func (r *Redis) GetNotTouchRoot(
 func (r *Redis) TakeRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (root *data.Root, err error) {
+	println("TakeRoot")
 
 	var reply getRootReply
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.takeRoot, 3,
@@ -773,6 +800,7 @@ func (r *Redis) TakeRoot(
 func (r *Redis) DelRoot(
 	pk cipher.PubKey, nonce uint64, seq uint64,
 ) (err error) {
+	println("DelRoot")
 
 	var reply []int
 	err = r.pool.Do(radix.FlatCmd(&reply, "EVALSHA", r.delRoot, 3,
@@ -815,6 +843,7 @@ func (r *Redis) Pool() *radix.Pool {
 
 // Close the Redis
 func (r *Redis) Close() (err error) {
+	println("Close")
 
 	r.closeo.Do(func() {
 		if err = r.setSafeClosed(true); err != nil {

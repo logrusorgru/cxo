@@ -5,6 +5,8 @@
 -- in:  feed, head, scan_count
 -- out: has_feed, has_head
 
+-- replicate commands
+redis.replicate_commands();
 
 local hex        = ARGV[1];
 local feed       = 'idx:' ..  hex;
@@ -37,9 +39,6 @@ redis.call('HDEL', feed, head);
 -- to remove idx:feed:head     (ZADD)
 -- and       idx:feed:head:seq (HMSET)
 local match = 'idx:' .. hex .. ':' .. head .. '*';
-
--- replicate commands
-redis.replicate_commands();
 
 -- delete roots (keys)
 -- brak while the 'scan_no' turns to be string "0"

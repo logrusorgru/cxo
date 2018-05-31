@@ -56,7 +56,7 @@ func DelFeed(t *testing.T, idx data.IdxDB) {
 	// unconditionally. If feed doesn't exist
 	// then the Del returns ErrNoSuchFeed.
 
-	var pk, _ = cipher.GenerateKeyPair()
+	var pk, sk = cipher.GenerateKeyPair()
 
 	// not exist
 	if err := idx.DelFeed(pk); err == nil {
@@ -65,13 +65,13 @@ func DelFeed(t *testing.T, idx data.IdxDB) {
 		t.Error(err)
 	}
 
-	// delete
+	// add
 	if err := idx.AddFeed(pk); err != nil {
 		t.Error(err)
 		return
 	}
 
-	// not exist
+	// exist
 	if err := idx.DelFeed(pk); err != nil {
 		t.Error(err)
 		return
@@ -81,6 +81,46 @@ func DelFeed(t *testing.T, idx data.IdxDB) {
 	} else if ok == true {
 		t.Error("not deleted")
 	}
+
+	// with head and root
+	// (heads and roots must be removed)
+	if err := idx.AddFeed(pk); err != nil {
+		t.Error(err)
+		return
+	}
+
+	var nonce uint64 = 1090
+
+	if err := idx.AddHead(pk, 1090); err != nil {
+		t.Error(err)
+		return
+	}
+
+	if ln, err := idx.HeadsLen(pk); err != nil {
+		t.Error(err)
+		return
+	} else if ln != 1 {
+		t.Errorf("unexpected heads length: %d, want 1", ln)
+	}
+
+	var (
+		hash = cipher.SumSHA256([]byte("stub"))
+		sig  = cipher.SignHash(hash, sk)
+	)
+
+	if _, err := idx.SetRoot(pk, nonce, 0, hash, sig); err != nil {
+		t.Error(err)
+		return
+	}
+
+	if ln, err := idx.RootsLen(pk, nonce); err != nil {
+		t.Error(err)
+		return
+	} else if ln != 1 {
+		t.Errorf("unexpected roots length %d, want 1", ln)
+	}
+
+	idx.DelFeed(pk)
 
 	return
 }

@@ -8,6 +8,9 @@ import (
 
 	"github.com/skycoin/cxo/data"
 	"github.com/skycoin/cxo/data/tests/idx"
+
+	// tmep
+	"github.com/skycoin/skycoin/src/cipher"
 )
 
 var Address = "127.0.0.1:6379"
@@ -60,7 +63,7 @@ func closeRedis(t *testing.T, r *Redis) {
 	}
 	defer conn.Close() // once or twice
 
-	// initialize
+	// finialize
 	if err = conn.Do(radix.Cmd(nil, "FLUSHDB")); err != nil {
 		t.Error(err)
 	}
@@ -70,11 +73,64 @@ func closeRedis(t *testing.T, r *Redis) {
 
 }
 
-func runTestCase(t *testing.T, testCase func(t *testing.T, ds data.IdxDB)) {
+func runTestCase(t *testing.T, testCase func(*testing.T, data.IdxDB)) {
 	var r = newRedis(t)
 	defer closeRedis(t, r)
 
 	testCase(t, r)
+}
+
+func Test_nothingWorks(t *testing.T) {
+	runTestCase(t, func(t *testing.T, idx data.IdxDB) {
+
+		var pk, _ = cipher.GenerateKeyPair()
+
+		if ok, err := idx.HasFeed(pk); err != nil {
+			t.Error(err)
+			return
+		} else if ok == true {
+			t.Error("has")
+			return
+		}
+
+		if err := idx.AddFeed(pk); err != nil {
+			t.Error(err)
+			return
+		}
+
+		if ok, err := idx.HasFeed(pk); err != nil {
+			t.Error(err)
+			return
+		} else if ok == false {
+			t.Error("has not")
+			return
+		}
+
+		// twice
+		if err := idx.AddFeed(pk); err != nil {
+			t.Error(err)
+			return
+		}
+
+		if ok, err := idx.HasFeed(pk); err != nil {
+			t.Error(err)
+			return
+		} else if ok == false {
+			t.Error("has not")
+			return
+		}
+
+		if err := idx.DelFeed(pk); err != nil {
+			t.Error(err)
+			return
+		}
+
+		// not exists
+		if err := idx.DelFeed(pk); err == nil {
+			t.Error(err)
+			return
+		}
+	})
 }
 
 func TestRedis_AddFeed(t *testing.T)      { runTestCase(t, idx.AddFeed) }
