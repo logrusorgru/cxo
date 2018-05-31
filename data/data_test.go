@@ -375,7 +375,63 @@ type dummyIdx struct {
 	err error
 }
 
-func (*dummyIdx) Tx(func(Feeds) error) (err error) { return }
+func (dummyIdx) AddFeed(cipher.PubKey) (_ error)                 { return }
+func (dummyIdx) DelFeed(cipher.PubKey) (_ error)                 { return }
+func (dummyIdx) IterateFeeds(IterateFeedsFunc) (_ error)         { return }
+func (dummyIdx) HasFeed(cipher.PubKey) (_ bool, _ error)         { return }
+func (dummyIdx) FeedsLen() (_ int, _ error)                      { return }
+func (dummyIdx) AddHead(cipher.PubKey, uint64) (_ error)         { return }
+func (dummyIdx) DelHead(cipher.PubKey, uint64) (_ error)         { return }
+func (dummyIdx) HasHead(cipher.PubKey, uint64) (_ bool, _ error) { return }
+func (dummyIdx) IterateHeads(cipher.PubKey, IterateHeadsFunc) (_ error) {
+	return
+}
+func (dummyIdx) HeadsLen(cipher.PubKey) (_ int, _ error) { return }
+func (dummyIdx) AscendRoots(
+	cipher.PubKey, uint64, IterateRootsFunc,
+) (err error) {
+	return
+}
+func (dummyIdx) DescendRoots(
+	cipher.PubKey, uint64, IterateRootsFunc,
+) (_ error) {
+	return
+}
+func (dummyIdx) HasRoot(cipher.PubKey, uint64, uint64) (_ bool, _ error) {
+	return
+}
+func (dummyIdx) RootsLen(cipher.PubKey, uint64) (_ int, _ error) { return }
+func (dummyIdx) SetRoot(
+	cipher.PubKey,
+	uint64,
+	uint64,
+	cipher.SHA256,
+	cipher.Sig,
+) (_ *Root, _ error) {
+	return
+}
+func (dummyIdx) SetNotTouchRoot(
+	cipher.PubKey,
+	uint64,
+	uint64,
+	cipher.SHA256,
+	cipher.Sig,
+) (_ *Root, _ error) {
+	return
+}
+func (dummyIdx) GetRoot(cipher.PubKey, uint64, uint64) (_ *Root, _ error) {
+	return
+}
+func (dummyIdx) GetNotTouchRoot(
+	cipher.PubKey, uint64, uint64,
+) (_ *Root, _ error) {
+	return
+}
+func (dummyIdx) TakeRoot(cipher.PubKey, uint64, uint64) (_ *Root, _ error) {
+	return
+}
+func (dummyIdx) DelRoot(cipher.PubKey, uint64, uint64) (_ error) { return }
+func (dummyIdx) IsSafeClosed() (_ bool)                          { return }
 
 func (d *dummyIdx) Close() error {
 	return d.err
